@@ -1,0 +1,27 @@
+{
+  "name": "D&D HOMEINVEST s.r.o.",
+  "short_name": "HOMEINVEST",
+  "description": "Rodinné projekty s tradicí a stylem",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f6f1",
+  "theme_color": "#c9a84c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "real_estate"],
+  "lang": "cs",
+  "dir": "ltr"
+}
