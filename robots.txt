@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /builder
 
 Sitemap: https://ddhomeinvest.cz/sitemap.xml
