@@ -3,6 +3,7 @@
   "short_name": "HOMEINVEST",
   "description": "Rodinné projekty s tradicí a stylem",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f8f6f1",
   "theme_color": "#c9a84c",

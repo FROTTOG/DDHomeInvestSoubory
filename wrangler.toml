@@ -1,0 +1,18 @@
+name = "ddhomeinvest"
+main = "src/worker.js"
+compatibility_date = "2026-08-23"
+workers_dev = true
+
+[assets]
+directory = "."
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ddhomeinvest"
+database_id = "a03e6e5b-4b46-4334-b344-baef9986c48e"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "ddhomeinvestbucket"
