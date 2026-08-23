@@ -39,8 +39,22 @@ npm run dev
 ```
 
 ## Admin
-- URL: `/admin/login`
+- Administrace (a celé API) běží **pouze na Cloudflare Workeru** — adresa nasazení:
+  `https://ddhomeinvest-<subdomena-účtu>.workers.dev/admin/login`
+  (adresu najdete v Cloudflare: Workers & Pages → ddhomeinvest → Overview)
 - uživatel: `honza2555`
 - heslo: `AsD123+--+321DsA`
+  (heslo je uloženo jako PBKDF2 hash v D1 tabulce `admin_users`, viz `migrations/0001_initial.sql`)
 
 Doporučení: po prvním produkčním nasazení heslo změnit a nepoužívat ho veřejně v repozitáři.
+
+### Důležité: statické nasazení (např. Endora) administraci NEobsahuje
+Statický export v tomto repozitáři umí servírovat pouze veřejné stránky. Na statickém hostingu:
+- `/admin/login` zobrazuje informační stránku (přihlášení zde není — staré „přihlášení v prohlížeči"
+  s hardcoded heslem bylo z bezpečnostních důvodů odstraněno),
+- `/api/*` neexistuje, takže administrace ani formulář kontaktů tam nefungují.
+
+Pro plnou funkcionalitu na hlavní doméně `ddhomeinvest.cz` nastavte Workeru custom domain:
+1. Cloudflare → Workers & Pages → `ddhomeinvest` → **Domains & Routes** → *Add* → Custom domain
+2. Přidejte `ddhomeinvest.cz` (+ `www`, pokud ji používáte) a v DNS nastavte CNAME, který Cloudflare vygeneruje
+3. Potom `https://ddhomeinvest.cz/admin/login` slouží skutečné přihlášení s D1/R2 backing.

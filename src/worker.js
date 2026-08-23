@@ -171,7 +171,7 @@ async function handleMedia(request, env, pathname) {
 async function handleLogin(request, env) {
   const body = await readJson(request);
   const username = String(body.username || '').trim();
-  const password = String(body.password || '');
+  const password = String(body.password || '').trim();
 
   if (!username || !password) {
     return jsonResponse({ error: 'Vyplňte uživatelské jméno i heslo.' }, 400, noStoreHeaders());
