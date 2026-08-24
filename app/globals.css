@@ -2,24 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Import fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&display=swap');
+/*
+ * Pozn.: Google fonty se načítají v app/layout.tsx přes <link rel="stylesheet">
+ * (s preconnect) – @import v CSS by renderování jen blokoval.
+ */
 
-/* CSS Variables */
+/* CSS proměnné – stejná paleta jako tailwind.config.js a DEFAULT_THEME */
 :root {
   --navy: #0a1628;
   --navy-light: #152238;
-  --navy-medium: #0a1020;
+  --navy-medium: #1a2d4a;
   --brass: #c9a84c;
-  --brass-light: #d4b85c;
-  --brass-dark: #b8983d;
+  --brass-light: #dfc06a;
+  --brass-dark: #a8872e;
+  --copper: #b87333;
+  --off-white: #f8f6f1;
+  --gray: #6f6a64;
+  --gray-soft: #9a9590;
+  --gray-light: #e8e4dc;
   --text: rgba(255, 255, 255, 0.92);
   --muted: rgba(255, 255, 255, 0.58);
   --border: rgba(255, 255, 255, 0.1);
   --danger: #f87171;
   --success: #34d399;
-  --off-white: #f8f6f1;
-  --gray-light: #e5e5e5;
+
+  /* bez --font-body by `font-family: var(--font-body)` spadlo na výchozí serif */
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-heading: 'Playfair Display', Georgia, serif;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Base styles */
@@ -41,7 +52,256 @@ body {
   font-family: var(--font-body);
   background: radial-gradient(circle at top, rgba(201, 168, 76, 0.12), transparent 25%),
     linear-gradient(180deg, #09111f 0%, var(--navy) 100%);
+  background-attachment: fixed;
   color: var(--text);
+}
+
+/* ------------------------------------------------------------------ *
+ * Animace
+ * Všechno animujeme přes transform/opacity (GPU kompozitor, bez reflow).
+ * Vypíná je prefers-reduced-motion i třída .no-anim na <html>.
+ * ------------------------------------------------------------------ */
+
+/* Dekorační „bubliny“ v hero – dříve jen statické kruhy */
+.morph-shape {
+  animation: morph 18s ease-in-out infinite;
+  transition: border-radius 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: border-radius, transform;
+}
+
+.morph-shape-alt {
+  animation: morphAlt 22s ease-in-out infinite;
+  transition: border-radius 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: border-radius, transform;
+}
+
+@keyframes morph {
+  0%,
+  100% {
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    border-radius: 35% 65% 60% 40% / 45% 60% 40% 55%;
+    transform: rotate(8deg) scale(1.05);
+  }
+}
+
+@keyframes morphAlt {
+  0%,
+  100% {
+    border-radius: 40% 60% 70% 30% / 40% 70% 30% 60%;
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    border-radius: 65% 35% 40% 60% / 55% 40% 60% 45%;
+    transform: rotate(-6deg) scale(0.96);
+  }
+}
+
+/* Animovaný mosazný rámeček (tlačítka, karty) */
+.animated-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.animated-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  background: linear-gradient(45deg, #c9a84c, #dfc06a, #a8872e, #c9a84c) 0 0 / 400% 400%;
+  animation: borderGradient 3s linear infinite;
+  transition: opacity 0.3s ease;
+}
+
+.animated-border:hover::before,
+.animated-border:focus-visible::before {
+  opacity: 1;
+}
+
+@keyframes borderGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Chvění – chybové stavy formulářů */
+.shake-animation {
+  animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translate3d(-5px, 0, 0);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translate3d(5px, 0, 0);
+  }
+}
+
+/* Pomalé plavání (logo v hero, ikony) */
+.float-slow {
+  animation: floatSoft 9s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes floatSoft {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+/* Přechodný lesk na nadpisu / mosazné lince oddělovače */
+.shimmer-text {
+  background-size: 200% 100%;
+  animation: shimmerMove 6s ease-in-out infinite;
+}
+
+@keyframes shimmerMove {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Scroll reveal
+ * Skrytý stav přidáváme JEN když běží JS (skript v layout.tsx přidá
+ * na <html> třídu `js`) – bez JavaScriptu zůstane obsah viditelný.
+ * ------------------------------------------------------------------ */
+
+.js .reveal {
+  opacity: 0;
+  transition-property: opacity, transform;
+  transition-duration: 0.7s;
+  transition-timing-function: var(--ease-out-expo);
+  will-change: opacity, transform;
+}
+
+.js .reveal.reveal-up {
+  transform: translate3d(0, 28px, 0);
+}
+
+.js .reveal.reveal-down {
+  transform: translate3d(0, -24px, 0);
+}
+
+.js .reveal.reveal-left {
+  transform: translate3d(-28px, 0, 0);
+}
+
+.js .reveal.reveal-right {
+  transform: translate3d(28px, 0, 0);
+}
+
+.js .reveal.reveal-scale {
+  transform: scale(0.95);
+}
+
+.js .reveal.reveal-fade {
+  transform: none;
+}
+
+.js .reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Karty s jemným „nadzvednutím“ při hoveru */
+.card-lift {
+  transition: transform 0.45s var(--ease-out-expo), box-shadow 0.45s var(--ease-out-expo),
+    border-color 0.45s ease;
+}
+
+.card-lift:hover {
+  transform: translate3d(0, -6px, 0);
+}
+
+/* Zoom fotky v kartě projektu */
+.image-zoom {
+  transition: transform 0.9s var(--ease-out-expo);
+  will-change: transform;
+}
+
+.group:hover .image-zoom {
+  transform: scale(1.06);
+}
+
+/* Mosazná linka oddělovače sekcí */
+.divider-line {
+  stroke-dasharray: 1400;
+  stroke-dashoffset: 1400;
+  animation: drawLine 2.2s var(--ease-out-expo) forwards;
+}
+
+@keyframes drawLine {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Právní stránky (dřív `prose` z chybějícího pluginu typography)
+ * ------------------------------------------------------------------ */
+.legal-prose {
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--gray);
+}
+
+.legal-prose section + section {
+  margin-top: 2rem;
+}
+
+.legal-prose h2 {
+  color: var(--navy);
+  line-height: 1.3;
+}
+
+.legal-prose p {
+  margin-bottom: 1rem;
+}
+
+.legal-prose ul {
+  margin: 0 0 1rem 1.25rem;
+  list-style: disc;
+}
+
+.legal-prose li {
+  margin-bottom: 0.5rem;
+}
+
+.legal-prose a {
+  color: var(--brass-dark);
+  text-decoration: underline;
 }
 
 /* Performance-optimized animations */
@@ -53,7 +313,29 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+
+  /* obsah musí zůstat viditelný i bez animací */
+  .js .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Ruční vypnutí animací (třída .no-anim na <html>) */
+.no-anim .morph-shape,
+.no-anim .morph-shape-alt,
+.no-anim .float-slow,
+.no-anim .shimmer-text,
+.no-anim .animated-border::before,
+.no-anim .divider-line {
+  animation: none !important;
+}
+
+.no-anim .reveal {
+  opacity: 1 !important;
+  transform: none !important;
 }
 
 /* Optimize animations for high refresh rate monitors */

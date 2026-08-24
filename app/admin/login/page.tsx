@@ -32,9 +32,11 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ password }), // Only sending password, not username
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.token) {
-        throw new Error(data.error || 'Přihlášení se nepodařilo.');
+        // API vrací konkrétní příčinu (chybějící binding / nenahrané migrace / CPU limit)
+        const detail = [data.error, data.message, data.hint].filter(Boolean).join(' ');
+        throw new Error(detail || 'Přihlášení se nepodařilo.');
       }
 
       localStorage.setItem('dd_admin_session', data.token);
@@ -63,7 +65,10 @@ export default function AdminLoginPage() {
 
           {/* Messages */}
           {error && (
-            <div className="mb-6 border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.1)] text-[#fecaca] px-4 py-3 rounded-xl text-sm" role="alert">
+            <div
+              className="mb-6 border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.1)] text-[#fecaca] px-4 py-3 rounded-xl text-sm shake-animation"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -133,6 +138,11 @@ export default function AdminLoginPage() {
           {/* Hint */}
           <p className="mt-6 text-center text-[rgba(255,255,255,0.4)] text-xs leading-relaxed">
             Přihlášení je ověřováno na serveru (D1) a administrace používá D1 + R2.
+            <br />
+            Stav databáze a bindingů:{' '}
+            <a href="/api/health" className="text-brass hover:text-brass-light underline">
+              /api/health
+            </a>
           </p>
         </div>
       </div>

@@ -74,6 +74,12 @@ export default function RootLayout({
   return (
     <html lang="cs">
       <head>
+        {/*
+          Třída `js` se přidává ještě před vykreslením: scroll-reveal animace
+          (`.reveal` v globals.css) skryjí obsah jen tehdy, když běží JS.
+          Bez JavaScriptu (nebo při chybě hydration) zůstane obsah viditelný.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js');" }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

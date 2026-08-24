@@ -468,6 +468,18 @@ export default function AdminPage() {
                 <Field label="Nadpis kontaktní sekce" value={content.contactContent?.sectionSubtitle} onChange={(v) => update(['contactContent', 'sectionSubtitle'], v)} />
                 <Field label="Popis kontaktní sekce" value={content.contactContent?.description} onChange={(v) => update(['contactContent', 'description'], v)} />
               </div>
+              <div className="mt-4">
+                <Field
+                  label="Formspree ID (e-maily z formuláře, např. mrerbaqr – prázdné = pouze ukládání do D1)"
+                  value={content.siteConfig?.formspreeId}
+                  onChange={(v) => update(['siteConfig', 'formspreeId'], v)}
+                  placeholder="mrerbaqr"
+                />
+                <p className="text-white/35 text-xs mt-1.5">
+                  Zprávy z formuláře se ukládají do D1 (záložka Zprávy) a zároveň se přeposílají na
+                  e-mail přes https://formspree.io/f/&lt;ID&gt;.
+                </p>
+              </div>
             </div>
           </>
         )}

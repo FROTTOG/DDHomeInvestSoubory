@@ -19,7 +19,7 @@ export default function ObchodniPodminkyPage() {
           <p className="font-body text-gray text-lg">D&D HOMEINVEST s.r.o.</p>
         </div>
 
-        <div className="prose prose-lg max-w-none text-gray">
+        <div className="legal-prose max-w-none">
           <section className="mb-8">
             <h2 className="font-heading text-2xl font-bold text-navy mb-4">1. Úvodní ustanovení</h2>
             <p>
@@ -67,7 +67,7 @@ export default function ObchodniPodminkyPage() {
           </section>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-gray-light/50">
+        <div className="mt-12 pt-8 border-t border-gray-light/60">
           <Link href="/" className="inline-flex items-center gap-2 text-navy hover:text-brass transition-colors">
             ← Zpět na hlavní stránku
           </Link>
