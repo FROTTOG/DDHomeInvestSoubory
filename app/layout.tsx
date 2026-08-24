@@ -2,13 +2,14 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://ddhomeinvest.cz'),
   title: {
     default: 'D&D HOMEINVEST s.r.o. | Rodinné projekty s tradicí a stylem',
     template: '%s | D&D HOMEINVEST s.r.o.',
   },
   description:
     'Jsme rodinná firma z jižních Čech. Vracíme život bytům a domům, kterým dáváme nový standard, moderní styl a skutečnou duši. Specializujeme se na rekonstrukce bytů a domů v jižních Čechách.',
-  author: 'D&D HOMEINVEST s.r.o.',
+  authors: [{ name: 'D&D HOMEINVEST s.r.o.' }],
   keywords: [
     'rekonstrukce',
     'byty',

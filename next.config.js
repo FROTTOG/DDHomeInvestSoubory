@@ -7,11 +7,6 @@ const nextConfig = {
   },
   // Enable React Strict Mode
   reactStrictMode: true,
-  // Compiler options for better performance
-  compiler: {
-    styledComponents: true,
-    reactRemoveProperties: true,
-  },
   // Headers for security
   async headers() {
     return [
@@ -72,13 +67,6 @@ const nextConfig = {
         permanent: true,
       },
     ];
-  },
-  // Experimental features for better performance
-  experimental: {
-    // Enable server actions
-    serverActions: true,
-    // Enable parallel routes
-    ppr: true,
   },
 };
 

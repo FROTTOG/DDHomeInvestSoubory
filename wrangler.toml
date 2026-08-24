@@ -1,14 +1,15 @@
 # Cloudflare Pages – konfigurace projektu ddhomeinvest
 #
 # Tento soubor je zdroj pravdy pro Pages projekt (bindingy D1 a R2,
-# build output). Statický web se servíruje přímo z kořene repozitáře,
-# dynamické části (API, administrace, obrázky) řeší Cloudflare Pages
+# build output). Statický web se generuje příkazem `next build` do
+# složky out/ (next.config.js: output = "export", distDir = "out").
+# Dynamické části (API, administrace, obrázky) řeší Cloudflare Pages
 # Functions ve složce functions/ (functions/_middleware.js).
 
 name = "ddhomeinvest"
 
-# Statický web (Next.js export) leží přímo v kořeni repozitáře.
-pages_build_output_dir = "."
+# Build command a výstup pro Cloudflare Pages
+pages_build_output_dir = "./out"
 
 compatibility_date = "2026-08-23"
 
