@@ -134,15 +134,31 @@ async function handleLogin(request, env) {
   const username = String(body.username || '').trim();
   const password = String(body.password || '').trim();
 
-  if (!username || !password) {
-    return jsonResponse({ error: 'Vyplňte uživatelské jméno i heslo.' }, 400, noStoreHeaders());
+  // Support password-only login for admin (single admin user scenario)
+  // If username is not provided, use the first admin user
+  if (!password) {
+    return jsonResponse({ error: 'Vyplňte heslo.' }, 400, noStoreHeaders());
   }
 
-  const user = await env.DB.prepare(
-    'SELECT username, password_hash, password_salt, iterations FROM admin_users WHERE username = ? LIMIT 1',
-  )
-    .bind(username)
-    .first();
+  let user = null;
+  
+  if (username) {
+    // Traditional login with username
+    user = await env.DB.prepare(
+      'SELECT username, password_hash, password_salt, iterations FROM admin_users WHERE username = ? LIMIT 1',
+    )
+      .bind(username)
+      .first();
+  } else {
+    // Password-only login - get the first admin user
+    const users = await env.DB.prepare(
+      'SELECT username, password_hash, password_salt, iterations FROM admin_users LIMIT 1',
+    ).all();
+    
+    if (users.results && users.results.length > 0) {
+      user = users.results[0];
+    }
+  }
 
   if (!user) {
     return jsonResponse({ error: 'Neplatné přihlašovací údaje.' }, 401, noStoreHeaders());
@@ -169,7 +185,9 @@ async function handleLogin(request, env) {
     `dd_admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_TTL_DAYS * 24 * 60 * 60}`,
   );
 
-  return jsonResponse({ ok: true, token, username: user.username }, 200, headers);
+  // Don't return username in response for password-only login
+  const responseData = username ? { ok: true, token, username: user.username } : { ok: true, token };
+  return jsonResponse(responseData, 200, headers);
 }
 
 async function handleLogout(request, env) {
