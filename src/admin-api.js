@@ -3,48 +3,45 @@ import { DEFAULT_CONTENT, DEFAULT_THEME, withComputedDefaults } from './default-
 const SESSION_TTL_DAYS = 7;
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 
-export default {
-  async fetch(request, env) {
-    try {
-      const url = new URL(request.url);
-      const { pathname } = url;
+/**
+ * Cloudflare Pages Functions – jádro administrace a API.
+ *
+ * Logika je sdílená s testy (tests/admin-api.test.js). Stručný přehled:
+ *  - /api/login, /api/logout          – přihlášení (PBKDF2 hash v D1) a odhlášení
+ *  - /api/content, /api/theme         – čtení/ukládání obsahu webu a vzhledu (D1)
+ *  - /api/upload, /media/...          – nahrávání obrázků do R2 a jejich servírování
+ *  - /api/contact, /api/contact-messages – kontaktní formulář (D1)
+ *  - /_next/static/chunks/580.*.js    – dynamický chunk obsahu webu generovaný z D1
+ */
 
-      if (pathname === '/admin/login' || pathname === '/admin/login/' || pathname === '/admin/login/index.html') {
-        return htmlResponse(buildLoginPageHtml(), {
-          'cache-control': 'no-store, max-age=0',
-        });
-      }
+export function isDynamicContentChunk(pathname) {
+  return /^\/_next\/static\/chunks\/580\.[^/]+\.js$/.test(pathname);
+}
 
-      if (pathname.startsWith('/api/')) {
-        return handleApi(request, env, url);
-      }
+export async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const { pathname } = url;
 
-      if (pathname.startsWith('/media/')) {
-        return handleMedia(request, env, pathname);
-      }
+  if (pathname.startsWith('/api/')) {
+    return handleApi(request, env, url);
+  }
 
-      if (/^\/_next\/static\/chunks\/580\.[^/]+\.js$/.test(pathname)) {
-        const content = await getContent(env);
-        return new Response(buildContentChunk(content), {
-          headers: {
-            'content-type': 'application/javascript; charset=utf-8',
-            'cache-control': 'no-store, max-age=0',
-          },
-        });
-      }
+  if (pathname.startsWith('/media/')) {
+    return handleMedia(env, pathname);
+  }
 
-      return handleAssetRequest(request, env, url);
-    } catch (error) {
-      return jsonResponse(
-        {
-          error: 'Internal Server Error',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        },
-        500,
-      );
-    }
-  },
-};
+  if (isDynamicContentChunk(pathname)) {
+    const content = await getContent(env);
+    return new Response(buildContentChunk(content), {
+      headers: {
+        'content-type': 'application/javascript; charset=utf-8',
+        'cache-control': 'no-store, max-age=0',
+      },
+    });
+  }
+
+  return null;
+}
 
 async function handleApi(request, env, url) {
   const { pathname } = url;
@@ -117,43 +114,7 @@ async function handleApi(request, env, url) {
   return jsonResponse({ error: 'Not Found' }, 404, noStoreHeaders());
 }
 
-async function handleAssetRequest(request, env, url) {
-  let assetResponse = await env.ASSETS.fetch(request);
-
-  if (assetResponse.status === 404 && !hasFileExtension(url.pathname)) {
-    const fallbackUrl = new URL('/index.html', url.origin);
-    assetResponse = await env.ASSETS.fetch(new Request(fallbackUrl.toString(), request));
-  }
-
-  const contentType = assetResponse.headers.get('content-type') || '';
-  const headers = new Headers(assetResponse.headers);
-
-  if (contentType.includes('text/html')) {
-    const content = await getContent(env);
-    let html = await assetResponse.text();
-    html = enhanceHtml(html, url, content);
-    headers.set('cache-control', 'no-store, max-age=0');
-    return new Response(html, {
-      status: assetResponse.status,
-      headers,
-    });
-  }
-
-  if (/^\/_next\/static\/chunks\/580\.[^/]+\.js$/.test(url.pathname)) {
-    headers.set('cache-control', 'no-store, max-age=0');
-  } else if (contentType.includes('javascript') || contentType.includes('css')) {
-    headers.set('cache-control', 'public, max-age=300, must-revalidate');
-  } else if (/(image|font)\//.test(contentType) || /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(url.pathname)) {
-    headers.set('cache-control', 'public, max-age=600, must-revalidate');
-  }
-
-  return new Response(assetResponse.body, {
-    status: assetResponse.status,
-    headers,
-  });
-}
-
-async function handleMedia(request, env, pathname) {
+async function handleMedia(env, pathname) {
   const key = pathname.replace(/^\/media\//, '');
   if (!key) return new Response('Not found', { status: 404 });
 
@@ -377,283 +338,7 @@ function buildContentChunk(content) {
   const contactContent = serializeJs(c.contactContent);
   const footerContent = serializeJs(c.footerContent);
 
-  return `"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[580],{4580:function(e,t,n){n.r(t),n.d(t,{aboutContent:function(){return aboutContent},contactContent:function(){return contactContent},currentProjects:function(){return currentProjects},footerContent:function(){return footerContent},galleryContent:function(){return galleryContent},heroContent:function(){return heroContent},philosophyContent:function(){return philosophyContent},siteConfig:function(){return siteConfig},soldProjects:function(){return soldProjects},teamMembers:function(){return teamMembers}});let siteConfig=${siteConfig},heroContent=${heroContent},aboutContent=${aboutContent},teamMembers=${teamMembers},philosophyContent=${philosophyContent},galleryContent=${galleryContent},currentProjects=${currentProjects},soldProjects=${soldProjects},contactContent=${contactContent},footerContent=${footerContent}}]);`;
-}
-
-function buildLoginPageHtml() {
-  return `<!DOCTYPE html>
-<html lang="cs">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
-  <meta name="robots" content="noindex, nofollow" />
-  <title>Administrace | D&D HOMEINVEST</title>
-  <style>
-    :root {
-      --navy: #0a1628;
-      --navy-light: #152238;
-      --brass: #c9a84c;
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.58);
-      --border: rgba(255,255,255,.1);
-      --danger: #f87171;
-      --success: #34d399;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, rgba(201,168,76,.12), transparent 25%), linear-gradient(180deg, #09111f 0%, var(--navy) 100%);
-      color: var(--text);
-      display: grid;
-      place-items: center;
-      padding: 24px;
-    }
-    .card {
-      width: min(100%, 420px);
-      background: rgba(14, 24, 43, .88);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 32px;
-      box-shadow: 0 24px 80px rgba(0,0,0,.35);
-      backdrop-filter: blur(12px);
-    }
-    .brand {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 24px;
-      text-align: center;
-    }
-    .badge {
-      width: 68px;
-      height: 68px;
-      border-radius: 18px;
-      display: grid;
-      place-items: center;
-      color: var(--brass);
-      background: rgba(201,168,76,.12);
-      border: 1px solid rgba(201,168,76,.24);
-      font-weight: 800;
-      font-size: 24px;
-      letter-spacing: .06em;
-    }
-    h1 { margin: 0; font-size: 28px; }
-    p { margin: 0; color: var(--muted); }
-    form { display: grid; gap: 16px; }
-    label { display: grid; gap: 8px; font-size: 14px; color: rgba(255,255,255,.75); }
-    input {
-      width: 100%;
-      border: 1px solid var(--border);
-      background: rgba(8, 16, 32, .85);
-      color: var(--text);
-      border-radius: 14px;
-      padding: 14px 16px;
-      outline: none;
-      font-size: 15px;
-    }
-    input:focus {
-      border-color: rgba(201,168,76,.45);
-      box-shadow: 0 0 0 4px rgba(201,168,76,.1);
-    }
-    button {
-      border: 0;
-      border-radius: 14px;
-      padding: 14px 18px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform .15s ease, opacity .15s ease, background .15s ease;
-    }
-    button:active { transform: translateY(1px); }
-    .primary {
-      background: var(--brass);
-      color: var(--navy);
-    }
-    .primary[disabled] { opacity: .6; cursor: wait; }
-    .secondary {
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .stack { display: grid; gap: 12px; }
-    .message {
-      display: none;
-      border-radius: 14px;
-      padding: 12px 14px;
-      font-size: 14px;
-      line-height: 1.5;
-      border: 1px solid transparent;
-    }
-    .message.error {
-      display: block;
-      color: #fecaca;
-      background: rgba(239, 68, 68, .1);
-      border-color: rgba(239,68,68,.25);
-    }
-    .message.success {
-      display: block;
-      color: #d1fae5;
-      background: rgba(16, 185, 129, .1);
-      border-color: rgba(16,185,129,.25);
-    }
-    .hint { margin-top: 16px; font-size: 12px; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="brand">
-      <div class="badge">DD</div>
-      <div>
-        <h1>Administrace</h1>
-        <p>D&D HOMEINVEST s.r.o.</p>
-      </div>
-    </div>
-    <div id="message" class="message" role="alert"></div>
-    <form id="login-form">
-      <label>
-        Uživatelské jméno
-        <input name="username" autocomplete="username" required placeholder="honza2555" />
-      </label>
-      <label>
-        Heslo
-        <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••••••" />
-      </label>
-      <div class="stack">
-        <button class="primary" id="submit" type="submit">Přihlásit se</button>
-        <a class="secondary" href="/">← Zpět na web</a>
-      </div>
-    </form>
-    <p class="hint">Přihlášení je ověřováno na serveru a administrace používá D1 + R2.</p>
-  </div>
-  <script>
-    const form = document.getElementById('login-form');
-    const submit = document.getElementById('submit');
-    const message = document.getElementById('message');
-
-    const showMessage = (text, type) => {
-      message.className = 'message ' + type;
-      message.textContent = text;
-    };
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      submit.textContent = 'Přihlašuji...';
-      message.className = 'message';
-      message.textContent = '';
-
-      const formData = new FormData(form);
-      const payload = Object.fromEntries(formData.entries());
-
-      try {
-        const response = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await response.json();
-        if (!response.ok || !data.token) {
-          throw new Error(data.error || 'Přihlášení se nepodařilo.');
-        }
-
-        localStorage.setItem('dd_admin_session', data.token);
-        showMessage('Přihlášení proběhlo úspěšně, přesměrovávám…', 'success');
-        window.location.href = '/admin';
-      } catch (error) {
-        showMessage(error.message || 'Přihlášení se nepodařilo.', 'error');
-        submit.disabled = false;
-        submit.textContent = 'Přihlásit se';
-      }
-    });
-  </script>
-</body>
-</html>`;
-}
-
-function enhanceHtml(html, url, content) {
-  const canonicalPath = url.pathname === '/index.html' ? '/' : url.pathname;
-  const canonical = `${url.origin}${canonicalPath}`;
-  const seoTags = [
-    `<link rel="canonical" href="${canonical}" />`,
-    `<meta property="og:url" content="${canonical}" />`,
-    `<meta property="og:image" content="${url.origin}/logo.png" />`,
-    `<meta name="twitter:image" content="${url.origin}/logo.png" />`,
-  ].join('');
-
-  let enhanced = html.replace('</head>', `${seoTags}</head>`);
-  enhanced = enhanced.replace(/\+420 123 456 789/g, content.siteConfig.phone);
-
-  if (url.pathname === '/' || url.pathname === '/index.html') {
-    enhanced = enhanced.replace('</body>', `${buildContactScript()}</body>`);
-  }
-
-  return enhanced;
-}
-
-function buildContactScript() {
-  return `<script>
-  (() => {
-    const init = () => {
-      const form = document.querySelector('#kontakt form');
-      if (!form || form.dataset.ddBound === '1') return;
-      form.dataset.ddBound = '1';
-
-      const submitButton = form.querySelector('button[type="submit"]');
-      const status = document.createElement('div');
-      status.style.marginTop = '12px';
-      status.style.fontSize = '14px';
-      status.style.lineHeight = '1.5';
-      form.appendChild(status);
-
-      const setStatus = (text, color) => {
-        status.textContent = text || '';
-        status.style.color = color || '#9a9590';
-      };
-
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-
-        const payload = Object.fromEntries(new FormData(form).entries());
-        submitButton.disabled = true;
-        const originalText = submitButton.textContent;
-        submitButton.textContent = 'Odesílám…';
-        setStatus('Odesílám zprávu…', '#c9a84c');
-
-        try {
-          const response = await fetch('/api/contact', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Zprávu se nepodařilo odeslat.');
-          form.reset();
-          setStatus(data.message || 'Děkujeme, zpráva byla odeslána.', '#10b981');
-        } catch (error) {
-          setStatus(error.message || 'Zprávu se nepodařilo odeslat.', '#ef4444');
-        } finally {
-          submitButton.disabled = false;
-          submitButton.textContent = originalText;
-        }
-      }, true);
-    };
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', init, { once: true });
-    } else {
-      init();
-    }
-  })();
-  </script>`;
+  return `"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[580],{4580:function(e,t,n){n.r(t),n.d(t,{aboutContent:function(){return aboutContent},contactContent:function(){return contactContent},currentProjects:function(){return currentProjects},footerContent:function(){return footerContent},galleryContent:function(){return galleryContent},heroContent:function(){return heroContent},philosophyContent:function(){return philosophyContent},siteConfig:function(){return siteConfig},soldProjects:function(){return soldProjects},teamMembers:function(){return teamMembers}});let siteConfig=${siteConfig},heroContent=${heroContent},aboutContent=${aboutContent},teamMembers=${teamMembers},philosophyContent=${philosophyContent},galleryContent=${galleryContent},currentProjects=${currentProjects},soldProjects=${soldProjects},contactContent=${contactContent},footerContent=${footerContent}}}]);`;
 }
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
@@ -663,12 +348,6 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
   }
 
   return new Response(JSON.stringify(data), { status, headers });
-}
-
-function htmlResponse(html, extraHeaders = {}) {
-  const headers = new Headers(extraHeaders);
-  headers.set('content-type', 'text/html; charset=utf-8');
-  return new Response(html, { headers });
 }
 
 function noStoreHeaders() {
@@ -728,10 +407,6 @@ function bytesToHex(bytes) {
 
 function serializeJs(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-}
-
-function hasFileExtension(pathname) {
-  return /\.[a-z0-9]+$/i.test(pathname);
 }
 
 function sanitizePathPart(value) {

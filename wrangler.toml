@@ -1,18 +1,24 @@
+# Cloudflare Pages – konfigurace projektu ddhomeinvest
+#
+# Tento soubor je zdroj pravdy pro Pages projekt (bindingy D1 a R2,
+# build output). Statický web se servíruje přímo z kořene repozitáře,
+# dynamické části (API, administrace, obrázky) řeší Cloudflare Pages
+# Functions ve složce functions/ (functions/_middleware.js).
+
 name = "ddhomeinvest"
-main = "src/worker.js"
+
+# Statický web (Next.js export) leží přímo v kořeni repozitáře.
+pages_build_output_dir = "."
+
 compatibility_date = "2026-08-23"
-workers_dev = true
 
-[assets]
-directory = "."
-binding = "ASSETS"
-not_found_handling = "single-page-application"
-
+# D1 – obsah webu, přihlášení administrace, zprávy z formuláře
 [[d1_databases]]
 binding = "DB"
 database_name = "ddhomeinvest"
 database_id = "a03e6e5b-4b46-4334-b344-baef9986c48e"
 
+# R2 – obrázky nahrávané z administrace (servírovány na /media/...)
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "ddhomeinvestbucket"
