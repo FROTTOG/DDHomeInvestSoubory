@@ -11,12 +11,10 @@ const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
  *  - /api/content, /api/theme         – čtení/ukládání obsahu webu a vzhledu (D1)
  *  - /api/upload, /media/...          – nahrávání obrázků do R2 a jejich servírování
  *  - /api/contact, /api/contact-messages – kontaktní formulář (D1)
- *  - /_next/static/chunks/580.*.js    – dynamický chunk obsahu webu generovaný z D1
+ *
+ * Obsah webu si Next.js aplikace načítá za běhu z GET /api/content,
+ * takže se změny z administrace projeví okamžitě bez rebuildů.
  */
-
-export function isDynamicContentChunk(pathname) {
-  return /^\/_next\/static\/chunks\/580\.[^/]+\.js$/.test(pathname);
-}
 
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
@@ -28,16 +26,6 @@ export async function handleRequest(request, env) {
 
   if (pathname.startsWith('/media/')) {
     return handleMedia(env, pathname);
-  }
-
-  if (isDynamicContentChunk(pathname)) {
-    const content = await getContent(env);
-    return new Response(buildContentChunk(content), {
-      headers: {
-        'content-type': 'application/javascript; charset=utf-8',
-        'cache-control': 'no-store, max-age=0',
-      },
-    });
   }
 
   return null;
@@ -342,23 +330,6 @@ async function saveJson(db, table, data) {
     .run();
 }
 
-function buildContentChunk(content) {
-  const c = withComputedDefaults(content);
-
-  const siteConfig = serializeJs(c.siteConfig);
-  const heroContent = serializeJs(c.heroContent);
-  const aboutContent = serializeJs(c.aboutContent);
-  const teamMembers = serializeJs(c.teamMembers);
-  const philosophyContent = serializeJs(c.philosophyContent);
-  const galleryContent = serializeJs(c.galleryContent);
-  const currentProjects = serializeJs(c.currentProjects);
-  const soldProjects = serializeJs(c.soldProjects);
-  const contactContent = serializeJs(c.contactContent);
-  const footerContent = serializeJs(c.footerContent);
-
-  return `"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[580],{4580:function(e,t,n){n.r(t),n.d(t,{aboutContent:function(){return aboutContent},contactContent:function(){return contactContent},currentProjects:function(){return currentProjects},footerContent:function(){return footerContent},galleryContent:function(){return galleryContent},heroContent:function(){return heroContent},philosophyContent:function(){return philosophyContent},siteConfig:function(){return siteConfig},soldProjects:function(){return soldProjects},teamMembers:function(){return teamMembers}});let siteConfig=${siteConfig},heroContent=${heroContent},aboutContent=${aboutContent},teamMembers=${teamMembers},philosophyContent=${philosophyContent},galleryContent=${galleryContent},currentProjects=${currentProjects},soldProjects=${soldProjects},contactContent=${contactContent},footerContent=${footerContent}}}]);`;
-}
-
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   const headers = new Headers(extraHeaders);
   if (!headers.has('content-type')) {
@@ -421,10 +392,6 @@ function randomToken() {
 
 function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function serializeJs(value) {
-  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 }
 
 function sanitizePathPart(value) {

@@ -33,3 +33,6 @@ next-env.d.ts
 .vscode/
 *.swp
 *.swo
+
+# Wrangler (lokální D1/R2 emulace)
+.wrangler/
