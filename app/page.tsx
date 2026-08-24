@@ -7,7 +7,7 @@ import Image from 'next/image';
 // Performance-optimized animation hook
 const useAnimation = (threshold = 0.1) => {
   const [isVisible, setIsVisible] = useState(false);
-  const elementRef = useRef<HTMLElement>(null);
+  const elementRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const currentElement = elementRef.current;
