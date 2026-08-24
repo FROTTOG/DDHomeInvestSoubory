@@ -2,16 +2,19 @@
 <html lang="cs">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Administrace | D&D HOMEINVEST</title>
+  <title>Administrace | D&amp;D HOMEINVEST</title>
   <style>
     :root {
       --navy: #0a1628;
+      --navy-light: #152238;
       --brass: #c9a84c;
       --text: rgba(255,255,255,.92);
       --muted: rgba(255,255,255,.58);
       --border: rgba(255,255,255,.1);
+      --danger: #f87171;
+      --success: #34d399;
     }
     * { box-sizing: border-box; }
     body {
@@ -25,19 +28,20 @@
       padding: 24px;
     }
     .card {
-      width: min(100%, 480px);
+      width: min(100%, 420px);
       background: rgba(14, 24, 43, .88);
       border: 1px solid var(--border);
       border-radius: 24px;
       padding: 32px;
       box-shadow: 0 24px 80px rgba(0,0,0,.35);
+      backdrop-filter: blur(12px);
     }
     .brand {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 10px;
-      margin-bottom: 22px;
+      margin-bottom: 24px;
       text-align: center;
     }
     .badge {
@@ -53,36 +57,70 @@
       font-size: 24px;
       letter-spacing: .06em;
     }
-    h1 { margin: 0; font-size: 24px; }
+    h1 { margin: 0; font-size: 28px; }
     .sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
-    p { margin: 0 0 14px; color: var(--muted); line-height: 1.65; font-size: 14px; }
-    p strong { color: var(--text); }
-    code {
-      display: inline-block;
-      max-width: 100%;
-      overflow-wrap: anywhere;
-      color: var(--brass);
-      background: rgba(201,168,76,.08);
-      border: 1px solid rgba(201,168,76,.2);
-      border-radius: 8px;
-      padding: 2px 8px;
-      font-size: 13px;
+    form { display: grid; gap: 16px; }
+    label { display: grid; gap: 8px; font-size: 14px; color: rgba(255,255,255,.75); }
+    input {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: rgba(8, 16, 32, .85);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 14px 16px;
+      outline: none;
+      font-size: 15px;
     }
-    a.back {
+    input:focus {
+      border-color: rgba(201,168,76,.45);
+      box-shadow: 0 0 0 4px rgba(201,168,76,.1);
+    }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s ease, opacity .15s ease, background .15s ease;
+    }
+    button:active { transform: translateY(1px); }
+    .primary {
+      background: var(--brass);
+      color: var(--navy);
+    }
+    .primary[disabled] { opacity: .6; cursor: wait; }
+    .secondary {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      text-decoration: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 13px 16px;
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 14px;
-      margin-top: 6px;
     }
-    a.back:hover { color: var(--text); border-color: rgba(201,168,76,.35); }
-    .hint { margin: 16px 0 0; font-size: 12px; text-align: center; color: rgba(255,255,255,.4); line-height: 1.5; }
+    .stack { display: grid; gap: 12px; }
+    .message {
+      display: none;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.5;
+      border: 1px solid transparent;
+    }
+    .message.error {
+      display: block;
+      color: #fecaca;
+      background: rgba(239, 68, 68, .1);
+      border-color: rgba(239,68,68,.25);
+    }
+    .message.success {
+      display: block;
+      color: #d1fae5;
+      background: rgba(16, 185, 129, .1);
+      border-color: rgba(16,185,129,.25);
+    }
+    .hint { margin-top: 16px; font-size: 12px; text-align: center; color: rgba(255,255,255,.4); line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -91,26 +129,67 @@
       <div class="badge">DD</div>
       <div>
         <h1>Administrace</h1>
-        <p class="sub">D&D HOMEINVEST s.r.o.</p>
+        <p class="sub">D&amp;D HOMEINVEST s.r.o.</p>
       </div>
     </div>
-    <p>
-      Plně funkční administrace (uložení obsahu, nahrávání obrázků, zprávy z formuláře) běží
-      na <strong>Cloudflare Workeru</strong> s databází D1 a úložištěm R2. Tato adresa je jen
-      statická stránka a přihlášení zde není dostupné.
-    </p>
-    <p>
-      Přihlaste se na adrese nasazení administrace:
-      <code>https://ddhomeinvest-…workers.dev/admin/login</code>
-      (konkrétní adresu najdete v Cloudflare: <strong>Workers &amp; Pages → ddhomeinvest → Overview</strong>).
-      Po nastavení custom domainu pro Worker bude administrace dostupná i na hlavní doméně
-      <code>https://ddhomeinvest.cz/admin/login</code>.
-    </p>
-    <a class="back" href="/">← Zpět na web</a>
-    <p class="hint">
-      Z bezpečnostních důvodů bylo staré přihlášení pouze v prohlížeči (bez ověření na serveru)
-      z této adresy odstraněno.
-    </p>
+    <div id="message" class="message" role="alert"></div>
+    <form id="login-form">
+      <label>
+        Uživatelské jméno
+        <input name="username" autocomplete="username" required placeholder="honza2555" />
+      </label>
+      <label>
+        Heslo
+        <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••••••" />
+      </label>
+      <div class="stack">
+        <button class="primary" id="submit" type="submit">Přihlásit se</button>
+        <a class="secondary" href="/">← Zpět na web</a>
+      </div>
+    </form>
+    <p class="hint">Přihlášení je ověřováno na serveru (D1) a administrace používá D1 + R2.</p>
   </div>
+  <script>
+    const form = document.getElementById('login-form');
+    const submit = document.getElementById('submit');
+    const message = document.getElementById('message');
+
+    const showMessage = (text, type) => {
+      message.className = 'message ' + type;
+      message.textContent = text;
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      submit.textContent = 'Přihlašuji...';
+      message.className = 'message';
+      message.textContent = '';
+
+      const formData = new FormData(form);
+      const payload = Object.fromEntries(formData.entries());
+
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.token) {
+          throw new Error(data.error || 'Přihlášení se nepodařilo.');
+        }
+
+        localStorage.setItem('dd_admin_session', data.token);
+        showMessage('Přihlášení proběhlo úspěšně, přesměrovávám…', 'success');
+        window.location.href = '/admin';
+      } catch (error) {
+        showMessage(error.message || 'Přihlášení se nepodařilo.', 'error');
+        submit.disabled = false;
+        submit.textContent = 'Přihlásit se';
+      }
+    });
+  </script>
 </body>
 </html>

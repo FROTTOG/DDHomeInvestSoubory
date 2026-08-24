@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "cf:types": "wrangler types",
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy .",
+    "db:migrate:local": "wrangler d1 migrations apply ddhomeinvest --local",
+    "db:migrate:remote": "wrangler d1 migrations apply ddhomeinvest --remote",
     "test": "node --test"
   },
   "devDependencies": {
