@@ -15,7 +15,7 @@ export default function AdminLoginPage() {
   useEffect(() => {
     const token = localStorage.getItem('dd_admin_session');
     if (token) {
-      router.push('/admin');
+      router.replace('/admin');
     }
   }, [router]);
 
@@ -39,11 +39,7 @@ export default function AdminLoginPage() {
 
       localStorage.setItem('dd_admin_session', data.token);
       setSuccess('Přihlášení proběhlo úspěšně, přesměrovávám…');
-      
-      // Redirect after a short delay
-      setTimeout(() => {
-        router.push('/admin');
-      }, 1500);
+      router.replace('/admin');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Přihlášení se nepodařilo.');
       setIsLoading(false);

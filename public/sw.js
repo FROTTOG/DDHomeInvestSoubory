@@ -1,6 +1,7 @@
-const CACHE_NAME = 'dd-homeinvest-v3';
-const STATIC_CACHE = 'dd-homeinvest-static-v3';
-const DYNAMIC_CONTENT_PATTERN = /^\/(_next\/static\/chunks\/580\.[^/]+\.js|api\/|media\/)/;
+const CACHE_NAME = 'dd-homeinvest-v4';
+const STATIC_CACHE = 'dd-homeinvest-static-v4';
+// Dynamické cesty (API a obrázky z R2) se nikdy necachují v service workeru
+const DYNAMIC_CONTENT_PATTERN = /^\/(api\/|media\/)/;
 
 self.addEventListener('install', () => {
   self.skipWaiting();

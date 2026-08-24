@@ -243,7 +243,7 @@ test('content and theme update require authorization', async () => {
   assert.equal(theme.response.status, 401);
 });
 
-test('authorized content update changes generated chunk', async () => {
+test('authorized content update is stored and returned by /api/content', async () => {
   const env = createEnv();
   const token = await login(env);
 
@@ -265,33 +265,13 @@ test('authorized content update changes generated chunk', async () => {
   });
   assert.equal(saveResponse.response.status, 200);
 
-  // dynamický chunk 580 (obě verze hashů z webpack runtimeů)
-  for (const chunkPath of ['/_next/static/chunks/580.ec199d0bfe52a281.js', '/_next/static/chunks/580.625fedceaff0ff6e.js']) {
-    const chunkResponse = await callMiddleware(env, chunkPath);
-    assert.equal(chunkResponse.response.status, 200);
-    assert.equal(chunkResponse.nextCalled, false);
-    assert.match(chunkResponse.response.headers.get('content-type'), /javascript/);
-    const chunkText = await chunkResponse.response.text();
-    assert.match(chunkText, /NOVÝ TITULEK/);
-  }
-});
-
-test('generated chunk is valid JS with all content exports', async () => {
-  const { Script } = await import('node:vm');
-  const env = createEnv();
-
-  const chunkResponse = await callMiddleware(env, '/_next/static/chunks/580.ec199d0bfe52a281.js');
-  const chunkText = await chunkResponse.response.text();
-
-  // regression: předchozí šablona chunku chyběl zavírací brace (SyntaxError v prohlížeči)
-  assert.doesNotThrow(() => new Script(chunkText), 'chunk musí být platný JavaScript');
-
-  // chunk musí registrovat webpack chunk 580 s modulem 4580
-  const sandbox = { webpackChunk_N_E: [] };
-  new Function('self', chunkText)({ webpackChunk_N_E: sandbox.webpackChunk_N_E });
-  const [chunkId, modules] = sandbox.webpackChunk_N_E[0];
-  assert.deepEqual([...chunkId], [580]);
-  assert.deepEqual(Object.keys(modules), ['4580']);
+  // veřejný web čte obsah z GET /api/content – změna musí být okamžitě vidět
+  const readBack = await callMiddleware(env, '/api/content');
+  assert.equal(readBack.response.status, 200);
+  const data = await readBack.response.json();
+  assert.equal(data.heroContent.title, 'NOVÝ TITULEK');
+  // no-store, aby prohlížeč nikdy nedržel starý obsah
+  assert.match(readBack.response.headers.get('cache-control') || '', /no-store/);
 });
 
 test('contact form stores message in D1', async () => {
@@ -431,7 +411,7 @@ test('cookie based session is accepted', async () => {
 
 test('static files bypass middleware (next is called)', async () => {
   const env = createEnv();
-  for (const pathName of ['/', '/index.html', '/builder/', '/_next/static/css/05751101c3fd5530.css', '/admin/', '/admin/login/', '/dd-contact.js']) {
+  for (const pathName of ['/', '/index.html', '/builder/', '/_next/static/css/05751101c3fd5530.css', '/admin/', '/admin/login/']) {
     const { response, nextCalled } = await callMiddleware(env, pathName);
     assert.equal(nextCalled, true, `expected next() for ${pathName}`);
     assert.equal(response.status, 200);
@@ -443,27 +423,33 @@ test('static files bypass middleware (next is called)', async () => {
   assert.equal(missing.nextCalled, false);
 });
 
-test('login page is a static working form', async () => {
-  const loginHtml = readFileSync(path.join(repoRoot, 'admin/login/index.html'), 'utf-8');
-  assert.match(loginHtml, /<form id="login-form">/);
-  assert.match(loginHtml, /fetch\('\/api\/login'/);
-  assert.match(loginHtml, /localStorage\.setItem\('dd_admin_session'/);
-  assert.match(loginHtml, /window\.location\.href = '\/admin'/);
-  assert.match(loginHtml, /noindex/);
+test('login page (Next.js) posts to /api/login and stores session', async () => {
+  const loginPage = readFileSync(path.join(repoRoot, 'app/admin/login/page.tsx'), 'utf-8');
+  assert.match(loginPage, /fetch\('\/api\/login'/);
+  assert.match(loginPage, /localStorage\.setItem\('dd_admin_session'/);
 });
 
-test('home page loads static contact script wired to API', async () => {
-  const homeHtml = readFileSync(path.join(repoRoot, 'index.html'), 'utf-8');
-  assert.match(homeHtml, /<script src="\/dd-contact\.js" defer><\/script>/);
+test('home page (Next.js) loads content from API and submits contact form to API', async () => {
+  const homePage = readFileSync(path.join(repoRoot, 'app/page.tsx'), 'utf-8');
+  assert.match(homePage, /fetch\('\/api\/contact'/);
+  assert.match(homePage, /useSiteContent/);
 
-  const contactJs = readFileSync(path.join(repoRoot, 'dd-contact.js'), 'utf-8');
-  assert.match(contactJs, /\/api\/contact/);
-  assert.match(contactJs, /#kontakt form/);
+  const contentHook = readFileSync(path.join(repoRoot, 'app/lib/use-content.ts'), 'utf-8');
+  assert.match(contentHook, /fetch\('\/api\/content'/);
 });
 
-test('dynamic content chunk is not shipped as static file anymore', async () => {
-  const chunksDir = path.join(repoRoot, '_next/static/chunks');
-  const static580 = existsSync(path.join(chunksDir, '580.ec199d0bfe52a281.js')) ||
-    existsSync(path.join(chunksDir, '580.625fedceaff0ff6e.js'));
-  assert.equal(static580, false, 'chunk 580 must be generated dynamically from D1');
+test('admin page (Next.js) saves content via API with Bearer token', async () => {
+  const adminPage = readFileSync(path.join(repoRoot, 'app/admin/page.tsx'), 'utf-8');
+  assert.match(adminPage, /fetch\('\/api\/content'/);
+  assert.match(adminPage, /method: 'PUT'/);
+  assert.match(adminPage, /authorization: `Bearer \$\{token\}`/);
+  assert.match(adminPage, /\/api\/upload/);
+  assert.match(adminPage, /\/api\/contact-messages/);
+});
+
+test('repo does not ship prebuilt static export in git root', async () => {
+  // web se builduje přes `next build` do out/ – v kořeni repozitáře nesmí být
+  // starý ručně commitnutý export
+  assert.equal(existsSync(path.join(repoRoot, 'index.html')), false);
+  assert.equal(existsSync(path.join(repoRoot, '_next')), false);
 });

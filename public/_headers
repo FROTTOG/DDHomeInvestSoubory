@@ -1,0 +1,14 @@
+# Cloudflare Pages – hlavičky (nahrazuje headers() z next.config.js,
+# které u statického exportu nefungují)
+
+/*
+  X-DNS-Prefetch-Control: on
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/admin/*
+  X-Robots-Tag: noindex, nofollow
+
+/builder/*
+  X-Robots-Tag: noindex, nofollow
