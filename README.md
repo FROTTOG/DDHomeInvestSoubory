@@ -21,7 +21,10 @@ formulář, obrázky) obsluhují Pages Functions:
   z administrace se projeví okamžitě, bez rebuildů**
 - administrace na `/admin` (login na `/admin/login`) umí upravovat texty,
   tým, projekty (včetně uploadů obrázků do R2) a číst zprávy z formuláře
-- kontaktní formulář ukládá zprávy do D1 přes `POST /api/contact`
+- kontaktní formulář ukládá zprávy do D1 přes `POST /api/contact` **a zároveň
+  je přeposílá na e-mail přes Formspree** (`siteConfig.formspreeId`,
+  výchozí `mrerbaqr`) – přeposlání běží na pozadí přes `ctx.waitUntil`, takže
+  formulář nezdržuje a chyba Formspree web nerozbije
 
 ## Struktura projektu
 
@@ -54,7 +57,8 @@ npm install
 npm run dev            # http://localhost:3000
 
 # kompletní web včetně API/D1/R2 (jako na produkci):
-npx wrangler d1 execute ddhomeinvest --local --file=migrations/0001_initial.sql  # jednou
+npx wrangler d1 execute ddhomeinvest --local --file=migrations/0001_initial.sql       # jednou
+npx wrangler d1 execute ddhomeinvest --local --file=migrations/0002_login_cpu_safe.sql
 npm run preview        # http://localhost:8788
 
 # testy
@@ -81,11 +85,19 @@ Stručně: push do `main` → Cloudflare Pages spustí `npm run build` a nasadí
 - `POST /api/upload` – upload obrázků do R2 (vyžaduje přihlášení)
 - `POST /api/contact` – odeslání kontaktního formuláře
 - `GET /api/contact-messages` – zprávy z formuláře (vyžaduje přihlášení)
+- `GET /api/health` – diagnostika bindingů D1/R2 a tabulek (bez přihlášení)
 - `GET /media/...` – obrázky z R2
 
 ## Bezpečnost
 
-- Hesla: PBKDF2 (SHA-256, 210 000 iterací), hash v D1
+- Hesla: PBKDF2 (SHA-256, 25 000 iterací), hash v D1
+  - 25 000 iterací ≈ 5 ms CPU – vejde se do limitu **10 ms CPU na požadavek**
+    u Cloudflare Pages Functions (free plán). Dřívějších 210 000 iterací
+    (~40 ms CPU) přihlášení shazovalo.
+  - počet iterací lze zvýšit proměnnou `ADMIN_PBKDF2_ITERATIONS` (placený plán);
+    při úspěšném přihlášení se hash automaticky posílí
+- Ochrana proti hádání hesla: 10 neúspěšných pokusů z jedné IP → `429` na 15 minut
+- Porovnání hashů v konstantním čase
 - Session: náhodný token, v D1 jako SHA-256 hash, platnost 7 dní
 - `/admin` a `/builder` jsou noindex (public/_headers)
 

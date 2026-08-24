@@ -1,18 +1,27 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useId } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSiteContent } from './lib/use-content';
 
-// Performance-optimized animation hook
-const useAnimation = (threshold = 0.1) => {
+/**
+ * Scroll-reveal hook (IntersectionObserver).
+ * - element se odpozoruje po prvním zobrazení (žádné zbytečné callbacky)
+ * - bez IntersectionObserver (starší prohlížeč / SSR fallback) zobrazíme hned
+ */
+const useAnimation = (threshold = 0.12) => {
   const [isVisible, setIsVisible] = useState(false);
   const elementRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const currentElement = elementRef.current;
     if (!currentElement) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -23,60 +32,166 @@ const useAnimation = (threshold = 0.1) => {
           }
         });
       },
-      { threshold, rootMargin: '0px 0px -50px 0px' }
+      { threshold, rootMargin: '0px 0px -40px 0px' }
     );
 
     observer.observe(currentElement);
 
     return () => {
-      if (currentElement) {
-        observer.unobserve(currentElement);
-      }
+      observer.disconnect();
     };
   }, [threshold]);
 
   return { ref: elementRef, isVisible };
 };
 
-// Optimized component with reduced motion support
-const AnimatedSection = ({ children, className = '', delay = 0 }: {
+/** Mapování presetů z administrace (DEFAULT_ANIMATIONS) na CSS třídy. */
+const PRESET_CLASS: Record<string, string> = {
+  fadeIn: 'reveal-fade',
+  slideUp: 'reveal-up',
+  slideDown: 'reveal-down',
+  slideInLeft: 'reveal-left',
+  slideInRight: 'reveal-right',
+  scaleIn: 'reveal-scale',
+};
+
+/**
+ * Sekce s animačním odhalením při scrollu.
+ *
+ * Animace jsou řešené CSS třídami (.reveal v globals.css) – pouze transform a
+ * opacity, tedy na GPU. Skrytý stav se aplikuje jen když běží JS (třída `js`
+ * na <html>), takže bez JavaScriptu obsah nezmizí, a prefers-reduced-motion
+ * všechno vypne. Nastavení (preset / duration / stagger / enabled) se bere
+ * z obsahu webu (DEFAULT_ANIMATIONS → D1).
+ */
+const AnimatedSection = ({
+  children,
+  className = '',
+  delay = 0,
+  preset = 'slideUp',
+  duration = 700,
+  enabled = true,
+  staggerIndex,
+  stagger = 0,
+}: {
   children: React.ReactNode;
   className?: string;
   delay?: number;
+  preset?: string;
+  duration?: number;
+  enabled?: boolean;
+  staggerIndex?: number;
+  stagger?: number;
 }) => {
   const { ref, isVisible } = useAnimation();
-  const [shouldAnimate, setShouldAnimate] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setShouldAnimate(!mediaQuery.matches);
-
-    const handleChange = (e: MediaQueryListEvent) => {
-      setShouldAnimate(!e.matches);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    const update = () => setReducedMotion(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener('change', update);
+    return () => mediaQuery.removeEventListener('change', update);
   }, []);
 
-  const style = shouldAnimate && isVisible
-    ? {
-        opacity: 1,
-        transform: 'translateY(0)',
-        transition: `opacity 0.6s ease-out ${delay}ms, transform 0.6s ease-out ${delay}ms`,
-        willChange: 'opacity, transform',
-      }
-    : {
-        opacity: shouldAnimate ? (isVisible ? 1 : 0) : 1,
-        transform: shouldAnimate && !isVisible ? 'translateY(30px)' : 'none',
-      };
+  if (!enabled || reducedMotion) {
+    return <div className={className}>{children}</div>;
+  }
+
+  const totalDelay = delay + (typeof staggerIndex === 'number' ? staggerIndex * stagger * 1000 : 0);
+  const presetClass = PRESET_CLASS[preset] || 'reveal-up';
 
   return (
-    <div ref={ref} className={className} style={style}>
+    <div
+      ref={ref}
+      className={`${className} reveal ${presetClass}${isVisible ? ' is-visible' : ''}`.trim()}
+      style={{ transitionDelay: `${totalDelay}ms`, transitionDuration: `${duration}ms` }}
+    >
       {children}
     </div>
   );
 };
+
+/** Nastavení animací pro konkrétní sekci (z obsahu webu / DEFAULT_ANIMATIONS). */
+const sectionAnim = (animations: any, section: string) => {
+  const config = animations?.[section] || {};
+  return {
+    preset: config.preset || 'slideUp',
+    duration: Math.round((config.duration ?? 0.7) * 1000),
+    stagger: config.stagger ?? 0,
+    enabled: config.enabled !== false,
+  };
+};
+
+/**
+ * Oddělovač sekcí – nahrazuje dřívější plný tmavý pruh (`w-full bg-navy`).
+ * Jemná dvojité zakřivená vlna s mosaznou linkou, která se při načtení vykreslí.
+ * `from` / `to` jsou CSS pozadí (barva nebo gradient) sousedních sekcí.
+ */
+const SectionDivider = ({
+  from,
+  to,
+  compact = false,
+  showLine = true,
+}: {
+  from: string;
+  to: string;
+  compact?: boolean;
+  showLine?: boolean;
+}) => {
+  const rawId = useId();
+  const id = `divider-${rawId.replace(/[^a-zA-Z0-9]/g, '')}`;
+  const curve =
+    'M0,84 C180,44 320,118 540,104 C760,90 900,26 1120,36 C1290,44 1380,86 1440,70 L1440,140 L0,140 Z';
+  const line = 'M0,84 C180,44 320,118 540,104 C760,90 900,26 1120,36 C1290,44 1380,86 1440,70';
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`relative w-full overflow-hidden ${compact ? 'h-[46px] sm:h-[64px]' : 'h-[70px] sm:h-[110px]'}`}
+      style={{ background: from }}
+    >
+      <svg
+        viewBox="0 0 1440 140"
+        preserveAspectRatio="none"
+        className="block h-full w-full"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={to} stopOpacity="0.55" />
+            <stop offset="55%" stopColor={to} stopOpacity="0.95" />
+            <stop offset="100%" stopColor={to} stopOpacity="1" />
+          </linearGradient>
+          <linearGradient id={`${id}-line`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#c9a84c" stopOpacity="0" />
+            <stop offset="30%" stopColor="#dfc06a" stopOpacity="0.9" />
+            <stop offset="70%" stopColor="#c9a84c" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#a8872e" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* měkký podkladový oblouk pro hloubku */}
+        <path d={curve} fill={to} opacity="0.35" transform="translate(0, 8)" />
+        <path d={curve} fill={`url(#${id}-fill)`} />
+        {showLine && (
+          <>
+            <path d={line} fill="none" stroke="#c9a84c" strokeOpacity="0.16" strokeWidth="6" />
+            <path
+              d={line}
+              fill="none"
+              stroke={`url(#${id}-line)`}
+              strokeWidth="1.5"
+              className="divider-line"
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+      </svg>
+    </div>
+  );
+};
+
 
 // SVG icons
 const PhoneIcon = ({ size = 16 }: { size?: number }) => (
@@ -208,12 +323,16 @@ const PageLoader = ({ ready }: { ready: boolean }) => {
 const TeamMember = ({
   member,
   delay = 0,
+  anim = { preset: 'slideUp', duration: 700, stagger: 0, enabled: true },
+  staggerIndex,
 }: {
   member: any;
   delay?: number;
+  anim?: { preset?: string; duration?: number; stagger?: number; enabled?: boolean };
+  staggerIndex?: number;
 }) => (
-  <AnimatedSection delay={delay}>
-    <div className="group bg-white rounded-2xl p-6 lg:p-8 shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-light/50 relative overflow-hidden h-full flex flex-col">
+  <AnimatedSection delay={delay} {...anim} staggerIndex={staggerIndex}>
+    <div className="group bg-white rounded-2xl p-6 lg:p-8 shadow-sm hover:shadow-2xl border border-gray-light/50 relative overflow-hidden h-full flex flex-col card-lift">
       <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brass via-brass-light to-copper origin-left transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500" />
       <div className="w-40 h-52 mx-auto mb-6 rounded-xl overflow-hidden border-4 border-brass/20 shadow-lg relative">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -222,14 +341,14 @@ const TeamMember = ({
           alt={member.name}
           width={160}
           height={208}
-          className="object-cover object-top w-full h-full"
+          className="object-cover object-top w-full h-full image-zoom"
           loading="lazy"
           decoding="async"
         />
       </div>
       <div className="mb-4 text-center px-2">
         <h3 className="font-heading text-2xl font-bold text-navy mb-2">{member.name}</h3>
-        <p className="font-body text-brass text-sm font-semibold tracking-wide uppercase mb-2">{member.role}</p>
+        <p className="font-body text-brass-dark text-sm font-semibold tracking-wide uppercase mb-2">{member.role}</p>
       </div>
       {member.subtitle && (
         <p className="font-heading text-navy/80 text-lg italic mb-4 text-center px-2">{member.subtitle}</p>
@@ -237,7 +356,7 @@ const TeamMember = ({
       <p className="font-body text-gray text-sm leading-relaxed break-words mb-4 px-2 flex-grow">
         {member.description}
       </p>
-      <div className="flex flex-col gap-3 pt-4 border-t border-gray-light/30 mt-auto">
+      <div className="flex flex-col gap-3 pt-4 border-t border-gray-light/60 mt-auto">
         {member.email && (
           <a
             href={`mailto:${member.email}`}
@@ -274,16 +393,28 @@ const statusStyle = (status: string) => {
 };
 
 // Project card component
-const ProjectCard = ({ project, delay = 0, onDetail }: { project: any; delay?: number; onDetail: (p: any) => void }) => (
-  <AnimatedSection delay={delay}>
-    <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-light/50 relative h-full">
+const ProjectCard = ({
+  project,
+  delay = 0,
+  onDetail,
+  anim = { preset: 'slideUp', duration: 700, stagger: 0, enabled: true },
+  staggerIndex,
+}: {
+  project: any;
+  delay?: number;
+  onDetail: (p: any) => void;
+  anim?: { preset?: string; duration?: number; stagger?: number; enabled?: boolean };
+  staggerIndex?: number;
+}) => (
+  <AnimatedSection delay={delay} {...anim} staggerIndex={staggerIndex} className="h-full">
+    <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-2xl border border-gray-light/50 relative h-full flex flex-col card-lift">
       <div className="relative h-72 bg-navy/10 overflow-hidden cursor-pointer" onClick={() => onDetail(project)}>
         {project.images?.[0] ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={project.images[0]}
             alt={project.title}
-            className="object-cover w-full h-full"
+            className="object-cover w-full h-full image-zoom"
             loading="lazy"
             decoding="async"
           />
@@ -317,7 +448,7 @@ const ProjectCard = ({ project, delay = 0, onDetail }: { project: any; delay?: n
           </span>
         </div>
       </div>
-      <div className="p-5 lg:p-6">
+      <div className="p-5 lg:p-6 flex-1">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0 flex-1">
             <h3 className="font-heading text-base lg:text-lg font-bold text-navy group-hover:text-brass transition-colors leading-snug">
@@ -479,7 +610,13 @@ const ContactForm = () => {
   };
 
   return (
-    <form className="bg-off-white rounded-2xl p-8 border border-gray-light/50" onSubmit={handleSubmit}>
+    <form
+      className={`bg-off-white rounded-2xl p-8 border border-gray-light/60 shadow-sm ${
+        status.type === 'error' ? 'shake-animation' : ''
+      }`}
+      onSubmit={handleSubmit}
+      noValidate={false}
+    >
       <h3 className="font-heading text-2xl font-bold text-navy mb-6">Napište nám</h3>
       <div className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -537,7 +674,9 @@ const ContactForm = () => {
         {status.message && status.type !== 'sending' && (
           <p
             role="status"
-            className={`font-body text-sm ${status.type === 'ok' ? 'text-emerald-600' : status.type === 'error' ? 'text-red-500' : 'text-gray'}`}
+            className={`font-body text-sm ${
+              status.type === 'ok' ? 'text-emerald-700' : status.type === 'error' ? 'text-red-600' : 'text-gray'
+            }`}
           >
             {status.message}
           </p>
@@ -578,6 +717,14 @@ export default function Home() {
   const currentProjects: any[] = Array.isArray(content.currentProjects) ? content.currentProjects : [];
   const soldProjects: any[] = Array.isArray(content.soldProjects) ? content.soldProjects : [];
   const visibleProjects = galleryTab === 'current' ? currentProjects : soldProjects;
+
+  // Nastavení animací jednotlivých sekcí (lze vypnout přes content.animations)
+  const heroAnim = sectionAnim(content.animations, 'hero');
+  const aboutAnim = sectionAnim(content.animations, 'about');
+  const philosophyAnim = sectionAnim(content.animations, 'philosophy');
+  const galleryAnim = sectionAnim(content.animations, 'gallery');
+  const ctaAnim = sectionAnim(content.animations, 'cta');
+  const contactAnim = sectionAnim(content.animations, 'contact');
 
   return (
     <>
@@ -661,48 +808,52 @@ export default function Home() {
         <section id="hero" className="relative min-h-screen flex items-center justify-center pt-32 pb-24">
           <div className="absolute inset-0 bg-gradient-to-br from-navy via-navy/95 to-[#1a1a2e]" />
           <div className="absolute inset-0 overflow-hidden">
-            <div className="absolute top-1/4 right-1/4 w-64 h-64 border border-brass/10 rounded-full morph-shape" style={{ willChange: 'border-radius' }} />
-            <div className="absolute bottom-1/3 left-1/5 w-96 h-96 border border-brass/5 rounded-full morph-shape-alt" style={{ willChange: 'border-radius' }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brass/5 rounded-full blur-3xl" />
+            {/* dekorativní tvary – plynulý morph (jen border-radius/transform = GPU) */}
+            <div className="absolute top-1/4 right-1/4 w-64 h-64 border border-brass/10 morph-shape" />
+            <div className="absolute bottom-1/3 left-1/5 w-96 h-96 border border-brass/5 morph-shape-alt" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brass/5 rounded-full blur-3xl animate-glow-slow" />
           </div>
 
           <div className="relative z-10 max-w-5xl mx-auto px-6 text-center">
-            <AnimatedSection>
-              <div className="mb-8 flex justify-center">
+            <AnimatedSection {...heroAnim} preset="fadeIn" duration={900}>
+              <div className="mb-8 flex justify-center float-slow">
                 <Image src="/logo.svg" alt="D&D HOMEINVEST Logo" width={180} height={180} priority />
               </div>
             </AnimatedSection>
 
-            <AnimatedSection delay={100}>
+            <AnimatedSection delay={100} {...heroAnim}>
               <div className="inline-flex items-center gap-2 bg-brass/10 border border-brass/20 rounded-full px-5 py-2 mb-8">
-                <div className="w-2 h-2 bg-brass rounded-full" />
+                <div className="w-2 h-2 bg-brass rounded-full animate-pulse" />
                 <span className="text-brass/90 text-sm font-body font-medium tracking-wider uppercase">
                   Rodinná firma z jižních Čech
                 </span>
               </div>
             </AnimatedSection>
 
-            <AnimatedSection delay={200}>
-              <h1 className="font-heading text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-8 leading-[1.2] bg-gradient-to-r from-white via-brass to-white bg-clip-text text-transparent">
+            <AnimatedSection delay={200} {...heroAnim}>
+              <h1 className="font-heading text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-8 leading-[1.2] bg-gradient-to-r from-white via-brass to-white bg-clip-text text-transparent shimmer-text">
                 {hero.title}
               </h1>
             </AnimatedSection>
 
-            <AnimatedSection delay={300}>
-              <div className="w-24 h-0.5 bg-gradient-to-r from-transparent via-brass to-transparent mx-auto mb-6" />
+            <AnimatedSection delay={300} {...heroAnim}>
+              <div
+                className="w-24 h-0.5 bg-gradient-to-r from-transparent via-brass to-transparent mx-auto mb-6 animate-grow-x"
+                style={{ transformOrigin: 'center' }}
+              />
             </AnimatedSection>
 
-            <AnimatedSection delay={400}>
-              <p className="font-heading text-xl sm:text-2xl md:text-3xl text-white/70 italic mb-4">{hero.subtitle}</p>
+            <AnimatedSection delay={400} {...heroAnim}>
+              <p className="font-heading text-xl sm:text-2xl md:text-3xl text-white/75 italic mb-4">{hero.subtitle}</p>
             </AnimatedSection>
 
-            <AnimatedSection delay={500}>
-              <p className="font-body text-base sm:text-lg text-white/50 max-w-2xl mx-auto mb-12 leading-relaxed">
+            <AnimatedSection delay={500} {...heroAnim}>
+              <p className="font-body text-base sm:text-lg text-white/60 max-w-2xl mx-auto mb-12 leading-relaxed">
                 {hero.description}
               </p>
             </AnimatedSection>
 
-            <AnimatedSection delay={600}>
+            <AnimatedSection delay={600} {...heroAnim}>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <a
                   href={hero.ctaLink || '#galerie'}
@@ -736,20 +887,16 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Decorative wave */}
-        <div className="w-full bg-navy">
-          <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto" preserveAspectRatio="none">
-            <path d="M0,64L48,58.7C96,53,192,43,288,42.7C384,43,480,53,576,58.7C672,64,768,64,864,58.7C960,53,1056,43,1152,42.7C1248,43,1344,53,1392,58.7L1440,64L1440,120L1392,120C1344,120,1248,120,1152,120C1056,120,960,120,864,120C768,120,672,120,576,120C480,120,384,120,288,120C192,120,96,120,48,120L0,120Z" fill="#f8f6f1" />
-          </svg>
-        </div>
+        {/* Plynulý přechod hero (tmavá) → O nás (světlá) */}
+        <SectionDivider from="linear-gradient(90deg,#0a1628 0%,#0f1d31 50%,#1a1a2e 100%)" to="#f8f6f1" />
 
         {/* About Section */}
         <div className="bg-off-white">
           <section id="o-nas" className="relative py-24 md:py-32 bg-off-white overflow-hidden">
             <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 relative z-10">
-              <AnimatedSection>
+              <AnimatedSection {...aboutAnim}>
                 <div className="text-center mb-12 md:mb-16">
-                  <span className="font-body text-brass text-sm font-semibold tracking-[0.25em] uppercase">
+                  <span className="font-body text-brass-dark text-sm font-semibold tracking-[0.25em] uppercase">
                     {about.sectionTitle}
                   </span>
                   <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-navy mt-4 mb-6 leading-tight">
@@ -763,9 +910,9 @@ export default function Home() {
                 </div>
               </AnimatedSection>
 
-              <AnimatedSection delay={200}>
+              <AnimatedSection delay={150} {...aboutAnim}>
                 <div className="text-center mb-12 md:mb-16">
-                  <p className="font-body text-navy/70 max-w-xl mx-auto text-base leading-relaxed">
+                  <p className="font-body text-gray max-w-2xl mx-auto text-base md:text-lg leading-relaxed">
                     {about.teamDescription}
                   </p>
                 </div>
@@ -773,12 +920,15 @@ export default function Home() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
                 {content.teamMembers.map((member: any, i: number) => (
-                  <TeamMember key={member.name || i} member={member} delay={i * 100} />
+                  <TeamMember key={member.name || i} member={member} anim={aboutAnim} staggerIndex={i} />
                 ))}
               </div>
             </div>
           </section>
         </div>
+
+        {/* Přechod O nás (světlá) → Filozofie (tmavá) */}
+        <SectionDivider from="#f8f6f1" to="#0a1628" />
 
         {/* Philosophy Section */}
         <section id="filozofie" className="relative py-24 md:py-32 bg-navy overflow-hidden">
@@ -795,7 +945,7 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 relative z-10">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
               <div>
-                <AnimatedSection>
+                <AnimatedSection {...philosophyAnim}>
                   <span className="font-body text-brass text-sm font-semibold tracking-[0.25em] uppercase">
                     {philosophy.sectionTitle}
                   </span>
@@ -805,11 +955,11 @@ export default function Home() {
                   <div className="w-16 h-0.5 bg-brass mb-8" />
                 </AnimatedSection>
                 {philosophy.paragraphs.map((paragraph: string, i: number) => (
-                  <AnimatedSection key={i} delay={100 + i * 100}>
-                    <p className="font-body text-white/60 text-sm md:text-base leading-relaxed mb-6">{paragraph}</p>
+                  <AnimatedSection key={i} delay={100 + i * 100} {...philosophyAnim}>
+                    <p className="font-body text-white/70 text-sm md:text-base leading-relaxed mb-6">{paragraph}</p>
                   </AnimatedSection>
                 ))}
-                <AnimatedSection delay={200}>
+                <AnimatedSection delay={200} {...philosophyAnim}>
                   <div className="mt-8 relative">
                     <div className="absolute -left-2 -top-1 w-1 h-full bg-brass/30 rounded-full" />
                     <div className="pl-6 border-l-4 border-brass/40 bg-white/5 rounded-r-lg p-6 backdrop-blur-sm">
@@ -821,12 +971,12 @@ export default function Home() {
                 </AnimatedSection>
               </div>
               <div>
-                <AnimatedSection delay={300}>
+                <AnimatedSection delay={300} {...philosophyAnim} preset="scaleIn">
                   <div className="grid grid-cols-2 gap-6">
                     {philosophy.highlights.map((highlight: any, i: number) => (
                       <div
                         key={i}
-                        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 lg:p-8 text-center hover:border-brass/30 transition-all duration-500 group relative overflow-hidden"
+                        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 lg:p-8 text-center hover:border-brass/40 hover:bg-white/[0.07] group relative overflow-hidden card-lift"
                       >
                         <span className="block font-heading text-4xl md:text-5xl font-bold text-brass mb-2 group-hover:text-brass-light transition-colors relative z-10">
                           {highlight.number}
@@ -853,7 +1003,7 @@ export default function Home() {
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brass/30 to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brass/30 to-transparent" />
           <div className="max-w-5xl mx-auto px-6 relative z-10 text-center">
-            <AnimatedSection>
+            <AnimatedSection {...ctaAnim}>
               <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
                 {cta.title} <span className="text-brass italic">{cta.highlight}</span>?
               </h2>
@@ -883,12 +1033,15 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Přechod CTA (tmavá) → Galerie (světlá) */}
+        <SectionDivider from="linear-gradient(90deg,#0a1628 0%,#1a2d4a 50%,#0a1628 100%)" to="#f8f6f1" />
+
         {/* Gallery Section */}
         <section id="galerie" className="relative py-24 md:py-32 bg-off-white overflow-hidden">
           <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 relative z-10">
-            <AnimatedSection>
+            <AnimatedSection {...galleryAnim}>
               <div className="text-center mb-10">
-                <span className="font-body text-brass text-sm font-semibold tracking-[0.25em] uppercase">Galerie</span>
+                <span className="font-body text-brass-dark text-sm font-semibold tracking-[0.25em] uppercase">Galerie</span>
                 <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-navy mt-3 mb-6">
                   {gallery.sectionTitle}
                 </h2>
@@ -897,7 +1050,7 @@ export default function Home() {
               </div>
             </AnimatedSection>
 
-            <AnimatedSection delay={100}>
+            <AnimatedSection delay={100} {...galleryAnim}>
               <div className="flex justify-center mb-12">
                 <div className="inline-flex bg-white rounded-2xl p-1.5 shadow-sm border border-gray-light/50">
                   <button
@@ -931,8 +1084,8 @@ export default function Home() {
             </AnimatedSection>
 
             {visibleProjects.length === 0 ? (
-              <AnimatedSection delay={200}>
-                <div className="text-center py-16 bg-white rounded-2xl border border-gray-light/50">
+              <AnimatedSection delay={200} {...galleryAnim}>
+                <div className="text-center py-16 bg-white rounded-2xl border border-gray-light/60">
                   <div className="flex justify-center mb-4 text-navy/20">
                     <HouseIcon size={48} />
                   </div>
@@ -946,25 +1099,32 @@ export default function Home() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
                 {visibleProjects.map((project: any, i: number) => (
-                  <ProjectCard key={project.id ?? i} project={project} delay={150 + i * 100} onDetail={setDetailProject} />
+                  <ProjectCard
+                    key={project.id ?? i}
+                    project={project}
+                    anim={galleryAnim}
+                    staggerIndex={i}
+                    delay={150}
+                    onDetail={setDetailProject}
+                  />
                 ))}
               </div>
             )}
           </div>
         </section>
 
+        {/* Přechod Galerie → Kontakt */}
+        <SectionDivider from="#f8f6f1" to="#ffffff" compact />
+
         {/* Contact Section */}
-        <div className="bg-off-white">
-          <div className="py-8">
-            <div className="relative h-px bg-gradient-to-r from-transparent via-brass/30 to-transparent max-w-4xl mx-auto" />
-          </div>
+        <div className="bg-white">
           <section id="kontakt" className="relative py-24 md:py-32 bg-white overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-brass/20 to-transparent" />
 
             <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 relative z-10">
-              <AnimatedSection>
+              <AnimatedSection {...contactAnim}>
                 <div className="text-center mb-16">
-                  <span className="font-body text-brass text-sm font-semibold tracking-[0.25em] uppercase">
+                  <span className="font-body text-brass-dark text-sm font-semibold tracking-[0.25em] uppercase">
                     {contact.sectionTitle}
                   </span>
                   <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-navy mt-3 mb-6">
@@ -977,7 +1137,7 @@ export default function Home() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 <div>
-                  <AnimatedSection delay={100}>
+                  <AnimatedSection delay={100} {...contactAnim} preset="slideInLeft">
                     <div className="space-y-8">
                       <div className="flex items-start gap-5 group">
                         <div className="w-12 h-12 bg-navy/5 rounded-xl flex items-center justify-center text-brass group-hover:bg-brass/10 transition-colors duration-300 flex-shrink-0">
@@ -1030,7 +1190,7 @@ export default function Home() {
                   </AnimatedSection>
                 </div>
                 <div>
-                  <AnimatedSection delay={200}>
+                  <AnimatedSection delay={200} {...contactAnim} preset="slideInRight">
                     <ContactForm />
                   </AnimatedSection>
                 </div>
@@ -1039,8 +1199,11 @@ export default function Home() {
           </section>
         </div>
 
+        {/* Přechod Kontakt (světlá) → Patička (tmavá) */}
+        <SectionDivider from="#ffffff" to="#0a1628" />
+
         {/* Footer */}
-        <footer className="relative bg-navy border-t border-white/5">
+        <footer className="relative bg-navy">
           <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-16">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
               <div>
