@@ -49,7 +49,9 @@ export default function Admin() {
   }, [auth]);
 
   useEffect(() => { const stored = localStorage.getItem('dd_admin_session'); if (!stored) { router.replace('/admin/login'); return; } setToken(stored);
-    Promise.all([fetch('/api/draft', { headers: { authorization: `Bearer ${stored}` }, cache: 'no-store' }).then((r) => { if (r.status === 401) throw new Error('auth'); return r.json(); }), reloadMeta()]).then(([draft]) => setContent(draft)).catch(() => { localStorage.removeItem('dd_admin_session'); router.replace('/admin/login'); }).finally(() => setLoading(false));
+    fetch('/api/setup-features', { method: 'POST', headers: { authorization: `Bearer ${stored}` } })
+      .then(() => Promise.all([fetch('/api/draft', { headers: { authorization: `Bearer ${stored}` }, cache: 'no-store' }).then((r) => { if (r.status === 401) throw new Error('auth'); return r.json(); }), reloadMeta()]))
+      .then(([draft]) => setContent(draft)).catch(() => { localStorage.removeItem('dd_admin_session'); router.replace('/admin/login'); }).finally(() => setLoading(false));
   }, [reloadMeta, router]);
   useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); }; addEventListener('beforeunload', warn); return () => removeEventListener('beforeunload', warn); }, [dirty]);
 
