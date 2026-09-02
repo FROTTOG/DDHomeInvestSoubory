@@ -16,7 +16,12 @@ export function useSiteContent() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch('/api/content', { cache: 'no-store' })
+    const preview = new URLSearchParams(window.location.search).get('preview') === '1';
+    const token = preview ? localStorage.getItem('dd_admin_session') : '';
+    fetch(preview ? '/api/draft' : '/api/content', {
+      cache: 'no-store',
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!cancelled && data && typeof data === 'object' && data.siteConfig) {

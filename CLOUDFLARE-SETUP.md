@@ -27,6 +27,7 @@ Web je **Next.js aplikace** (App Router) nasazená na Cloudflare Pages:
 | `public/_headers` | bezpečnostní hlavičky (u statického exportu nefungují headers() z next.config.js) |
 | `migrations/0001_initial.sql` | schéma D1 + administrátorský uživatel |
 | `migrations/0002_login_cpu_safe.sql` | hash hesla s 25 000 iteracemi (vejde se do CPU limitu Workers) |
+| `migrations/0003_site_features.sql` | koncepty, verze, workflow poptávek, hlídací pes a analytika |
 | `tests/admin-api.test.js` | testy API (přihlášení, oprávnění, obsah, upload, kontakty) |
 
 ## Build configuration (Cloudflare Pages)
@@ -60,6 +61,7 @@ Důležité:
    ```bash
    npx wrangler d1 execute ddhomeinvest --remote --file=migrations/0001_initial.sql
    npx wrangler d1 execute ddhomeinvest --remote --file=migrations/0002_login_cpu_safe.sql
+   npx wrangler d1 execute ddhomeinvest --remote --file=migrations/0003_site_features.sql
    ```
    (poprvé po vytvoření projektu; později jen při změně migrací)
 4. Stav ověříte na `https://ddhomeinvest.cz/api/health` – vypíše bindingy,
@@ -76,6 +78,7 @@ npm run dev                # next dev, http://localhost:3000
 # kompletní web včetně API, D1 a R2 (stejně jako na produkci):
 npx wrangler d1 execute ddhomeinvest --local --file=migrations/0001_initial.sql       # jednou
 npx wrangler d1 execute ddhomeinvest --local --file=migrations/0002_login_cpu_safe.sql
+npx wrangler d1 execute ddhomeinvest --local --file=migrations/0003_site_features.sql
 npm run preview            # next build + wrangler pages dev out/, http://localhost:8788
 ```
 
@@ -111,6 +114,14 @@ Doporučení: po prvním produkčním nasazení heslo změnit (nový hash vytvo�
 
 ### Přihlášení trvá dlouho / padá na CPU limit
 Cloudflare Pages Functions mají na free plánu **10 ms CPU na požadavek**.
+### Hlídací pes (Resend)
+
+V Resendu ověřte doménu `ddhomeinvest.cz` a v Cloudflare Pages → Settings →
+Variables and Secrets přidejte šifrovaný secret `RESEND_API`. Odesílatelem je
+`notifications@ddhomeinvest.cz`. Nový odběratel potvrzuje adresu přes double opt-in;
+při publikování projektu se upozornění o novém projektu či změně ceny/stavu zařadí
+na pozadí přes `waitUntil`.
+
 PBKDF2 proto používá 25 000 iterací (~5 ms CPU). Hodnotu lze změnit proměnnou
 `ADMIN_PBKDF2_ITERATIONS` (např. na placeném plánu), při dalším úspěšném
 přihlášení se hash v D1 automaticky přepočítá.

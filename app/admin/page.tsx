@@ -1,544 +1,88 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-type Tab = 'obsah' | 'tym' | 'projekty' | 'zpravy';
+type Tab = 'obsah' | 'tym' | 'projekty' | 'zpravy' | 'odbery' | 'analytika' | 'verze';
+const input = 'w-full px-3 py-2.5 rounded-lg bg-[#0a1020] border border-white/10 text-white text-sm focus:outline-none focus:border-[#c9a84c] placeholder:text-white/25';
+const card = 'bg-[rgba(14,24,43,.92)] border border-white/10 rounded-2xl p-5 md:p-6';
+const primary = 'bg-[#c9a84c] text-[#0a1628] px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-[#dfc06a] disabled:opacity-50';
+const ghost = 'border border-white/15 text-white/70 px-4 py-2 rounded-lg text-sm hover:border-[#c9a84c] hover:text-[#c9a84c]';
+const label = 'block text-white/45 text-[11px] font-semibold uppercase tracking-wider mb-1.5';
 
-const inputCls =
-  'w-full px-3 py-2.5 rounded-lg bg-[#0a1020] border border-white/10 text-white text-sm focus:outline-none focus:border-brass/60 focus:ring-1 focus:ring-brass/30 transition-colors placeholder:text-white/25';
-const labelCls = 'block text-white/50 text-xs font-medium tracking-wide uppercase mb-1.5';
-const cardCls = 'bg-[rgba(14,24,43,0.88)] border border-white/10 rounded-2xl p-6';
-const btnPrimary =
-  'inline-flex items-center gap-2 bg-brass text-navy px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-brass-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnGhost =
-  'inline-flex items-center gap-2 border border-white/15 text-white/70 px-4 py-2 rounded-lg text-sm hover:border-brass/50 hover:text-brass transition-colors';
-const btnDanger =
-  'inline-flex items-center gap-1.5 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/10 transition-colors';
-
-function Field({
-  label,
-  value,
-  onChange,
-  textarea = false,
-  rows = 3,
-  placeholder = '',
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  textarea?: boolean;
-  rows?: number;
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <label className={labelCls}>{label}</label>
-      {textarea ? (
-        <textarea className={inputCls} rows={rows} value={value || ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-      ) : (
-        <input className={inputCls} type="text" value={value || ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-      )}
-    </div>
-  );
+function Field({ label: title, value, onChange, textarea = false, type = 'text', placeholder = '' }: any) {
+  return <label className="block"><span className={label}>{title}</span>{textarea ? <textarea rows={4} className={input} value={value || ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}/> : <input type={type} className={input} value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}/>}</label>;
 }
 
-function ImageUpload({
-  token,
-  directory,
-  onUploaded,
-}: {
-  token: string;
-  directory: string;
-  onUploaded: (path: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleFile = async (file: File) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('directory', directory);
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Nahrání se nepodařilo.');
-      onUploaded(data.path);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nahrání se nepodařilo.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div>
-      <label className="inline-flex items-center gap-2 border border-brass/30 text-brass px-3 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-brass/10 transition-colors">
-        {busy ? 'Nahrávám…' : 'Nahrát obrázek'}
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          disabled={busy}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFile(file);
-            e.target.value = '';
-          }}
-        />
-      </label>
-      {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
-    </div>
-  );
+async function optimizeImage(file: File) {
+  if (file.type === 'image/svg+xml' || file.type === 'image/gif') return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Optimalizace selhala')), 'image/webp', .84));
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
 }
 
-export default function AdminPage() {
-  const router = useRouter();
-  const [token, setToken] = useState<string>('');
-  const [checking, setChecking] = useState(true);
-  const [tab, setTab] = useState<Tab>('obsah');
-  const [content, setContent] = useState<any>(null);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
-  const [dirty, setDirty] = useState(false);
+function Upload({ token, directory, onUploaded }: { token: string; directory: string; onUploaded: (path: string) => void }) {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  return <label className={`${ghost} cursor-pointer inline-block`}>{busy ? 'Optimalizuji a nahrávám…' : '+ Nahrát fotografie'}<input hidden multiple type="file" accept="image/*" disabled={busy} onChange={async (e) => {
+    const files = Array.from(e.target.files || []); e.target.value = ''; setBusy(true); setError('');
+    try { for (const original of files) { const file = await optimizeImage(original); const data = new FormData(); data.append('file', file); data.append('directory', directory); const res = await fetch('/api/upload', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: data }); const json = await res.json(); if (!res.ok) throw new Error(json.error); onUploaded(json.path); } } catch (err) { setError(err instanceof Error ? err.message : 'Upload selhal'); } finally { setBusy(false); }
+  }}/>{error && <span className="block text-red-400 text-xs mt-1">{error}</span>}</label>;
+}
 
-  // ---- auth + initial load -------------------------------------------------
-  useEffect(() => {
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('dd_admin_session') : null;
-    if (!stored) {
-      router.replace('/admin/login');
-      return;
-    }
+const slugify = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    let cancelled = false;
-    (async () => {
-      try {
-        // ověření session na serveru (endpoint vyžaduje autorizaci)
-        const res = await fetch('/api/contact-messages', {
-          headers: { authorization: `Bearer ${stored}` },
-        });
-        if (res.status === 401) {
-          localStorage.removeItem('dd_admin_session');
-          router.replace('/admin/login');
-          return;
-        }
-        const msgs = res.ok ? await res.json() : [];
+export default function Admin() {
+  const router = useRouter(); const importRef = useRef<HTMLInputElement>(null);
+  const [token, setToken] = useState(''); const [loading, setLoading] = useState(true); const [tab, setTab] = useState<Tab>('obsah');
+  const [content, setContent] = useState<any>(); const [messages, setMessages] = useState<any[]>([]); const [subscribers, setSubscribers] = useState<any[]>([]); const [analytics, setAnalytics] = useState<any>(); const [versions, setVersions] = useState<any[]>([]);
+  const [dirty, setDirty] = useState(false); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState(''); const [search, setSearch] = useState(''); const [messageFilter, setMessageFilter] = useState('all');
+  const auth = useCallback((extra: HeadersInit = {}) => ({ ...extra, authorization: `Bearer ${localStorage.getItem('dd_admin_session') || ''}` }), []);
 
-        const contentRes = await fetch('/api/content', { cache: 'no-store' });
-        const contentData = contentRes.ok ? await contentRes.json() : null;
+  const reloadMeta = useCallback(async () => {
+    const [m, s, a, v] = await Promise.all(['/api/contact-messages', '/api/watch-subscribers', '/api/analytics', '/api/versions'].map((url) => fetch(url, { headers: auth() }).then((r) => r.ok ? r.json() : [])));
+    setMessages(Array.isArray(m) ? m : []); setSubscribers(Array.isArray(s) ? s : []); setAnalytics(a); setVersions(Array.isArray(v) ? v : []);
+  }, [auth]);
 
-        if (!cancelled) {
-          setToken(stored);
-          setMessages(Array.isArray(msgs) ? msgs : []);
-          setContent(contentData);
-          setChecking(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setChecking(false);
-          setSaveStatus({ type: 'error', text: 'Nepodařilo se spojit s API. Administrace vyžaduje běžící Cloudflare Functions (produkce nebo `npm run preview`).' });
-        }
-      }
-    })();
+  useEffect(() => { const stored = localStorage.getItem('dd_admin_session'); if (!stored) { router.replace('/admin/login'); return; } setToken(stored);
+    Promise.all([fetch('/api/draft', { headers: { authorization: `Bearer ${stored}` }, cache: 'no-store' }).then((r) => { if (r.status === 401) throw new Error('auth'); return r.json(); }), reloadMeta()]).then(([draft]) => setContent(draft)).catch(() => { localStorage.removeItem('dd_admin_session'); router.replace('/admin/login'); }).finally(() => setLoading(false));
+  }, [reloadMeta, router]);
+  useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); }; addEventListener('beforeunload', warn); return () => removeEventListener('beforeunload', warn); }, [dirty]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
+  const update = (path: (string | number)[], value: any) => { setContent((old: any) => { const next = structuredClone(old); let node = next; path.slice(0, -1).forEach((key) => node = node[key]); node[path.at(-1)!] = value; return next; }); setDirty(true); setNotice(''); };
+  const updateItem = (key: string, i: number, values: any) => { const list = [...content[key]]; list[i] = { ...list[i], ...values }; update([key], list); };
+  const saveDraft = async () => { setBusy(true); const res = await fetch('/api/draft', { method: 'PUT', headers: auth({ 'content-type': 'application/json' }), body: JSON.stringify(content) }); setBusy(false); if (res.ok) { setDirty(false); setNotice('Koncept uložen. Veřejný web se nezměnil.'); } else setNotice('Uložení konceptu selhalo.'); };
+  const publish = async () => { if (!confirm('Opravdu publikovat koncept na veřejný web?')) return; setBusy(true); await saveDraft(); const res = await fetch('/api/publish', { method: 'POST', headers: auth({ 'content-type': 'application/json' }), body: JSON.stringify({ content }) }); const data = await res.json(); setBusy(false); if (res.ok) { setDirty(false); setNotice(`Publikováno. E-mailových upozornění ve frontě: ${data.notification?.queued || 0}.`); reloadMeta(); } else setNotice(data.error || 'Publikování selhalo.'); };
+  const download = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' })); a.download = `ddhomeinvest-zaloha-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href); };
 
-  const update = useCallback((path: string[], value: any) => {
-    setContent((prev: any) => {
-      const next = structuredClone(prev);
-      let target = next;
-      for (let i = 0; i < path.length - 1; i += 1) {
-        target = target[path[i]];
-      }
-      target[path[path.length - 1]] = value;
-      return next;
-    });
-    setDirty(true);
-    setSaveStatus(null);
-  }, []);
+  const filteredMessages = useMemo(() => messages.filter((m) => (messageFilter === 'all' || m.status === messageFilter) && `${m.name} ${m.email} ${m.phone} ${m.message}`.toLowerCase().includes(search.toLowerCase())), [messages, messageFilter, search]);
+  const patchMessage = async (id: number, values: any) => { const old = messages.find((m) => m.id === id); setMessages((all) => all.map((m) => m.id === id ? { ...m, ...values } : m)); await fetch(`/api/contact-messages/${id}`, { method: 'PATCH', headers: auth({ 'content-type': 'application/json' }), body: JSON.stringify({ status: values.status ?? old.status, admin_note: values.admin_note ?? old.admin_note }) }); };
+  const csv = () => { const rows = [['datum','jmeno','email','telefon','stav','zprava'], ...filteredMessages.map((m) => [m.created_at,m.name,m.email,m.phone,m.status,m.message])]; const esc = (x: any) => `"${String(x || '').replace(/"/g,'""')}"`; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + rows.map((r) => r.map(esc).join(';')).join('\n')], { type: 'text/csv' })); a.download = 'poptavky.csv'; a.click(); };
 
-  const save = async () => {
-    setSaving(true);
-    setSaveStatus(null);
-    try {
-      const res = await fetch('/api/content', {
-        method: 'PUT',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(content),
-      });
-      const data = await res.json();
-      if (res.status === 401) {
-        localStorage.removeItem('dd_admin_session');
-        router.replace('/admin/login');
-        return;
-      }
-      if (!res.ok) throw new Error(data.error || 'Uložení se nepodařilo.');
-      setDirty(false);
-      setSaveStatus({ type: 'ok', text: 'Změny byly uloženy a jsou ihned vidět na webu.' });
-    } catch (e) {
-      setSaveStatus({ type: 'error', text: e instanceof Error ? e.message : 'Uložení se nepodařilo.' });
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (loading || !content) return <div className="min-h-screen bg-[#0a1020] text-white flex items-center justify-center">Načítám administraci…</div>;
+  const nav: [Tab,string][] = [['obsah','Obsah'],['tym','Tým'],['projekty','Projekty'],['zpravy',`Poptávky (${messages.filter(m=>m.status==='new').length})`],['odbery','Hlídací pes'],['analytika','Analytika'],['verze','Verze a zálohy']];
 
-  const logout = async () => {
-    try {
-      await fetch('/api/logout', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}` },
-      });
-    } catch {
-      /* ignore */
-    }
-    localStorage.removeItem('dd_admin_session');
-    router.replace('/admin/login');
-  };
+  const projectEditor = (key: 'currentProjects'|'soldProjects') => <section className="space-y-4"><div className="flex justify-between items-center"><h2 className="font-heading text-xl font-bold">{key === 'currentProjects' ? 'Aktuální projekty' : 'Historie prodejů'}</h2><button className={ghost} onClick={() => update([key], [...content[key], { id: Date.now(), title: 'Nový projekt', slug: '', location: '', address: '', latitude: '', longitude: '', description: '', descriptionLong: '', status: key === 'currentProjects' ? 'Připravujeme' : 'Prodáno', price: '', area: '', disposition: '', floor: '', ownership: 'Osobní', penb: '', completionDate: '', images: [], imageCaptions: {}, features: [], timeline: [] }])}>+ Přidat</button></div>
+    {content[key].map((p: any, i: number) => <article className={card} key={p.id}><div className="flex justify-between gap-4 mb-5"><div><h3 className="font-bold">{p.title}</h3><a target="_blank" href={`/projekty/${p.slug || slugify(p.title)}/`} className="text-[#c9a84c] text-xs">Otevřít detail ↗</a></div><button className="text-red-400 text-xs" onClick={() => { if(confirm('Smazat projekt?')) update([key], content[key].filter((_:any,n:number)=>n!==i)); }}>Smazat</button></div>
+      <div className="grid md:grid-cols-3 gap-4"><Field label="Název" value={p.title} onChange={(v:string)=>updateItem(key,i,{title:v,slug:p.slug || slugify(v)})}/><Field label="URL slug" value={p.slug} onChange={(v:string)=>updateItem(key,i,{slug:slugify(v)})}/><Field label="Stav" value={p.status} onChange={(v:string)=>updateItem(key,i,{status:v})}/><Field label="Lokalita" value={p.location} onChange={(v:string)=>updateItem(key,i,{location:v})}/><Field label="Přesnější adresa" value={p.address} onChange={(v:string)=>updateItem(key,i,{address:v})}/><Field label="Cena" value={p.price} onChange={(v:string)=>updateItem(key,i,{price:v})}/><Field label="Zeměpisná šířka" type="number" value={p.latitude} onChange={(v:string)=>updateItem(key,i,{latitude:Number(v)})}/><Field label="Zeměpisná délka" type="number" value={p.longitude} onChange={(v:string)=>updateItem(key,i,{longitude:Number(v)})}/><Field label="Dispozice" value={p.disposition} onChange={(v:string)=>updateItem(key,i,{disposition:v})}/><Field label="Plocha" value={p.area} onChange={(v:string)=>updateItem(key,i,{area:v})}/><Field label="Podlaží" value={p.floor} onChange={(v:string)=>updateItem(key,i,{floor:v})}/><Field label="Vlastnictví" value={p.ownership} onChange={(v:string)=>updateItem(key,i,{ownership:v})}/><Field label="PENB" value={p.penb} onChange={(v:string)=>updateItem(key,i,{penb:v})}/><Field label="Předpokládané dokončení" value={p.completionDate} onChange={(v:string)=>updateItem(key,i,{completionDate:v})}/></div>
+      <div className="grid md:grid-cols-2 gap-4 mt-4"><Field label="Krátký popis" textarea value={p.description} onChange={(v:string)=>updateItem(key,i,{description:v})}/><Field label="Text detailu" textarea value={p.descriptionLong} onChange={(v:string)=>updateItem(key,i,{descriptionLong:v})}/><Field label="Přednosti (jedna na řádek)" textarea value={(p.features||[]).join('\n')} onChange={(v:string)=>updateItem(key,i,{features:v.split('\n').filter(Boolean)})}/><Field label="Tagy (oddělené čárkou)" textarea value={(p.tags||[]).join(', ')} onChange={(v:string)=>updateItem(key,i,{tags:v.split(',').map(x=>x.trim()).filter(Boolean)})}/></div>
+      <div className="mt-6"><span className={label}>Fotografie hotového bytu – první je úvodní, pořadí změňte přetažením</span><div className="flex flex-wrap gap-3 mb-3">{(p.images||[]).map((src:string,n:number)=><div draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain',String(n))} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault();const from=Number(e.dataTransfer.getData('text/plain'));const imgs=[...p.images];const [item]=imgs.splice(from,1);imgs.splice(n,0,item);updateItem(key,i,{images:imgs});}} key={src} className="w-36"><img src={src} alt="" className="w-36 h-24 object-cover rounded-lg border border-white/10"/><input aria-label="Popisek fotografie" className={`${input} mt-1 !py-1 text-xs`} placeholder="Popisek" value={p.imageCaptions?.[src]||''} onChange={(e)=>updateItem(key,i,{imageCaptions:{...p.imageCaptions,[src]:e.target.value}})}/><button className="text-red-400 text-xs mt-1" onClick={()=>updateItem(key,i,{images:p.images.filter((x:string)=>x!==src)})}>Odstranit</button></div>)}</div><Upload token={token} directory={`projects/${p.slug || p.id}`} onUploaded={(src)=>updateItem(key,i,{images:[...(p.images||[]),src]})}/></div>
+      {key === 'currentProjects' && <div className="mt-6"><div className="flex justify-between"><span className={label}>Průběh rekonstrukce (bez fotografií)</span><button className="text-[#c9a84c] text-xs" onClick={()=>updateItem(key,i,{timeline:[...(p.timeline||[]),{title:'Nová fáze',description:'',status:'upcoming'}]})}>+ Fáze</button></div><div className="space-y-3">{(p.timeline||[]).map((step:any,n:number)=><div className="grid md:grid-cols-[1fr_2fr_160px_auto] gap-2" key={n}><input className={input} value={step.title} onChange={(e)=>{const x=[...p.timeline];x[n]={...step,title:e.target.value};updateItem(key,i,{timeline:x});}}/><input className={input} value={step.description} onChange={(e)=>{const x=[...p.timeline];x[n]={...step,description:e.target.value};updateItem(key,i,{timeline:x});}}/><select className={input} value={step.status} onChange={(e)=>{const x=[...p.timeline];x[n]={...step,status:e.target.value};updateItem(key,i,{timeline:x});}}><option value="done">Hotovo</option><option value="current">Právě probíhá</option><option value="upcoming">Čeká</option></select><button className="text-red-400" onClick={()=>updateItem(key,i,{timeline:p.timeline.filter((_:any,j:number)=>j!==n)})}>×</button></div>)}</div></div>}
+      <button className={`${ghost} mt-6`} onClick={()=>{const to=key==='currentProjects'?'soldProjects':'currentProjects';update([key],content[key].filter((_:any,n:number)=>n!==i));setContent((old:any)=>({...old,[to]:[...old[to],{...p,status:to==='soldProjects'?'Prodáno':p.status}]}));}}>Přesunout do {key==='currentProjects'?'historie':'aktuálních'}</button>
+    </article>)}</section>;
 
-  // ---- helpers for arrays --------------------------------------------------
-  const updateArrayItem = (key: string, index: number, field: string, value: any) => {
-    const arr = [...(content[key] || [])];
-    arr[index] = { ...arr[index], [field]: value };
-    update([key], arr);
-  };
-
-  const removeArrayItem = (key: string, index: number) => {
-    const arr = [...(content[key] || [])];
-    arr.splice(index, 1);
-    update([key], arr);
-  };
-
-  const addProject = (key: 'currentProjects' | 'soldProjects') => {
-    const arr = [...(content[key] || [])];
-    arr.push({
-      id: Date.now(),
-      title: 'Nový projekt',
-      location: '',
-      description: '',
-      status: key === 'currentProjects' ? 'Připravujeme' : 'Prodáno',
-      area: '',
-      price: '',
-      penb: '',
-      images: [],
-      tags: [],
-    });
-    update([key], arr);
-  };
-
-  const moveProject = (from: 'currentProjects' | 'soldProjects', index: number) => {
-    const to = from === 'currentProjects' ? 'soldProjects' : 'currentProjects';
-    const fromArr = [...(content[from] || [])];
-    const [item] = fromArr.splice(index, 1);
-    const toArr = [...(content[to] || []), { ...item, status: to === 'soldProjects' ? 'Prodáno' : item.status }];
-    setContent((prev: any) => ({ ...prev, [from]: fromArr, [to]: toArr }));
-    setDirty(true);
-  };
-
-  // ---- render ----------------------------------------------------------------
-  if (checking) {
-    return (
-      <div className="min-h-screen bg-[#0a1020] flex items-center justify-center p-4">
-        <div className="text-center">
-          <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#c9a84c] animate-spin mx-auto mb-4" aria-hidden="true">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-          <p className="text-white/40 text-sm">Kontrola přihlášení…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!content) {
-    return (
-      <div className="min-h-screen bg-[#0a1020] flex items-center justify-center p-4">
-        <div className={`${cardCls} max-w-lg text-center`}>
-          <p className="text-white/70 text-sm mb-4">
-            {saveStatus?.text || 'Obsah se nepodařilo načíst z API.'}
-          </p>
-          <Link href="/" className={btnGhost}>Zpět na web</Link>
-        </div>
-      </div>
-    );
-  }
-
-  const projectEditor = (key: 'currentProjects' | 'soldProjects', title: string) => (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-white font-heading text-lg font-semibold">{title}</h3>
-        <button className={btnGhost} onClick={() => addProject(key)}>+ Přidat projekt</button>
-      </div>
-      {(content[key] || []).length === 0 && (
-        <p className="text-white/30 text-sm">Žádné projekty.</p>
-      )}
-      {(content[key] || []).map((project: any, i: number) => (
-        <div key={project.id ?? i} className={cardCls}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Název" value={project.title} onChange={(v) => updateArrayItem(key, i, 'title', v)} />
-            <Field label="Lokalita" value={project.location} onChange={(v) => updateArrayItem(key, i, 'location', v)} />
-            <Field label="Stav (např. Připravujeme / V prodeji / Prodáno)" value={project.status} onChange={(v) => updateArrayItem(key, i, 'status', v)} />
-            <Field label="Cena" value={project.price} onChange={(v) => updateArrayItem(key, i, 'price', v)} />
-            <Field label="Plocha (např. 67m2)" value={project.area} onChange={(v) => updateArrayItem(key, i, 'area', v)} />
-            <Field label="PENB" value={project.penb} onChange={(v) => updateArrayItem(key, i, 'penb', v)} />
-          </div>
-          <div className="mt-4">
-            <Field label="Popis" textarea value={project.description} onChange={(v) => updateArrayItem(key, i, 'description', v)} />
-          </div>
-          <div className="mt-4">
-            <label className={labelCls}>Obrázky</label>
-            <div className="flex flex-wrap gap-3 items-start">
-              {(project.images || []).map((img: string, imgIdx: number) => (
-                <div key={imgIdx} className="relative group">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img} alt="" className="w-24 h-24 object-cover rounded-lg border border-white/10" />
-                  <button
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => {
-                      const images = [...(project.images || [])];
-                      images.splice(imgIdx, 1);
-                      updateArrayItem(key, i, 'images', images);
-                    }}
-                    aria-label="Odstranit obrázek"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <ImageUpload
-                token={token}
-                directory={key === 'currentProjects' ? 'gallery/aktualni' : 'gallery/prodane'}
-                onUploaded={(path) => updateArrayItem(key, i, 'images', [...(project.images || []), path])}
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-white/5">
-            <button className={btnGhost} onClick={() => moveProject(key, i)}>
-              {key === 'currentProjects' ? 'Přesunout do prodaných' : 'Přesunout do aktuální nabídky'}
-            </button>
-            <button className={btnDanger} onClick={() => removeArrayItem(key, i)}>Smazat projekt</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-[#0a1020]">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#0a1020]/95 backdrop-blur border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="w-9 h-9 flex-shrink-0 border border-brass/30 rounded-lg flex items-center justify-center bg-brass/10 text-brass font-bold text-sm">DD</span>
-            <div className="min-w-0">
-              <p className="text-white font-semibold text-sm truncate">Administrace webu</p>
-              <p className="text-white/40 text-xs truncate">D&D HOMEINVEST</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {saveStatus && (
-              <span className={`hidden md:inline text-xs ${saveStatus.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
-                {saveStatus.text}
-              </span>
-            )}
-            <button className={btnPrimary} onClick={save} disabled={saving || !dirty}>
-              {saving ? 'Ukládám…' : dirty ? 'Uložit změny' : 'Uloženo'}
-            </button>
-            <Link href="/" className={btnGhost} target="_blank">Web</Link>
-            <button className={btnGhost} onClick={logout}>Odhlásit</button>
-          </div>
-        </div>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
-          {([
-            ['obsah', 'Texty webu'],
-            ['tym', 'Tým'],
-            ['projekty', 'Projekty'],
-            ['zpravy', `Zprávy (${messages.length})`],
-          ] as [Tab, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
-                tab === key ? 'border-brass text-brass' : 'border-transparent text-white/50 hover:text-white'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {saveStatus && (
-          <p className={`md:hidden text-sm ${saveStatus.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>{saveStatus.text}</p>
-        )}
-
-        {tab === 'obsah' && (
-          <>
-            <div className={cardCls}>
-              <h3 className="text-white font-heading text-lg font-semibold mb-4">Úvod (hero)</h3>
-              <div className="space-y-4">
-                <Field label="Hlavní titulek" value={content.heroContent?.title} onChange={(v) => update(['heroContent', 'title'], v)} />
-                <Field label="Podtitulek" value={content.heroContent?.subtitle} onChange={(v) => update(['heroContent', 'subtitle'], v)} />
-                <Field label="Popis" textarea value={content.heroContent?.description} onChange={(v) => update(['heroContent', 'description'], v)} />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field label="Text hlavního tlačítka" value={content.heroContent?.ctaText} onChange={(v) => update(['heroContent', 'ctaText'], v)} />
-                  <Field label="Text druhého tlačítka" value={content.heroContent?.secondaryCtaText} onChange={(v) => update(['heroContent', 'secondaryCtaText'], v)} />
-                </div>
-              </div>
-            </div>
-
-            <div className={cardCls}>
-              <h3 className="text-white font-heading text-lg font-semibold mb-4">O nás</h3>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field label="Nadpis sekce" value={content.aboutContent?.sectionTitle} onChange={(v) => update(['aboutContent', 'sectionTitle'], v)} />
-                  <Field label="Podnadpis" value={content.aboutContent?.sectionSubtitle} onChange={(v) => update(['aboutContent', 'sectionSubtitle'], v)} />
-                </div>
-                <Field label="Úvodní text (může obsahovat HTML odkazy)" textarea rows={6} value={content.aboutContent?.intro} onChange={(v) => update(['aboutContent', 'intro'], v)} />
-                <Field label="Text nad týmem" textarea value={content.aboutContent?.teamDescription} onChange={(v) => update(['aboutContent', 'teamDescription'], v)} />
-              </div>
-            </div>
-
-            <div className={cardCls}>
-              <h3 className="text-white font-heading text-lg font-semibold mb-4">Filozofie</h3>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field label="Nadpis sekce" value={content.philosophyContent?.sectionTitle} onChange={(v) => update(['philosophyContent', 'sectionTitle'], v)} />
-                  <Field label="Podnadpis" value={content.philosophyContent?.sectionSubtitle} onChange={(v) => update(['philosophyContent', 'sectionSubtitle'], v)} />
-                </div>
-                <Field
-                  label="Text (jeden odstavec na řádek)"
-                  textarea
-                  rows={5}
-                  value={(content.philosophyContent?.paragraphs || []).join('\n')}
-                  onChange={(v) => update(['philosophyContent', 'paragraphs'], v.split('\n').filter(Boolean))}
-                />
-                <div>
-                  <label className={labelCls}>Čísla / statistiky</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {(content.philosophyContent?.highlights || []).map((h: any, i: number) => (
-                      <div key={i} className="flex gap-2">
-                        <input
-                          className={`${inputCls} !w-24`}
-                          value={h.number || ''}
-                          placeholder="20+"
-                          onChange={(e) => {
-                            const highlights = [...content.philosophyContent.highlights];
-                            highlights[i] = { ...highlights[i], number: e.target.value };
-                            update(['philosophyContent', 'highlights'], highlights);
-                          }}
-                        />
-                        <input
-                          className={inputCls}
-                          value={h.label || ''}
-                          placeholder="Popisek"
-                          onChange={(e) => {
-                            const highlights = [...content.philosophyContent.highlights];
-                            highlights[i] = { ...highlights[i], label: e.target.value };
-                            update(['philosophyContent', 'highlights'], highlights);
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className={cardCls}>
-              <h3 className="text-white font-heading text-lg font-semibold mb-4">Kontakt a firemní údaje</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Telefon" value={content.siteConfig?.phone} onChange={(v) => update(['siteConfig', 'phone'], v)} />
-                <Field label="E-mail" value={content.siteConfig?.email} onChange={(v) => update(['siteConfig', 'email'], v)} />
-                <Field label="Adresa" value={content.siteConfig?.address} onChange={(v) => update(['siteConfig', 'address'], v)} />
-                <Field label="IČO" value={content.siteConfig?.ico} onChange={(v) => update(['siteConfig', 'ico'], v)} />
-                <Field label="Nadpis kontaktní sekce" value={content.contactContent?.sectionSubtitle} onChange={(v) => update(['contactContent', 'sectionSubtitle'], v)} />
-                <Field label="Popis kontaktní sekce" value={content.contactContent?.description} onChange={(v) => update(['contactContent', 'description'], v)} />
-              </div>
-              <div className="mt-4">
-                <Field
-                  label="Formspree ID (e-maily z formuláře, např. mrerbaqr – prázdné = pouze ukládání do D1)"
-                  value={content.siteConfig?.formspreeId}
-                  onChange={(v) => update(['siteConfig', 'formspreeId'], v)}
-                  placeholder="mrerbaqr"
-                />
-                <p className="text-white/35 text-xs mt-1.5">
-                  Zprávy z formuláře se ukládají do D1 (záložka Zprávy) a zároveň se přeposílají na
-                  e-mail přes https://formspree.io/f/&lt;ID&gt;.
-                </p>
-              </div>
-            </div>
-          </>
-        )}
-
-        {tab === 'tym' && (
-          <div className="space-y-4">
-            {(content.teamMembers || []).map((member: any, i: number) => (
-              <div key={i} className={cardCls}>
-                <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex flex-col items-center gap-3 flex-shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={member.image} alt={member.name} className="w-28 h-36 object-cover object-top rounded-xl border border-white/10" />
-                    <ImageUpload token={token} directory="images/team" onUploaded={(path) => updateArrayItem('teamMembers', i, 'image', path)} />
-                  </div>
-                  <div className="flex-1 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Field label="Jméno" value={member.name} onChange={(v) => updateArrayItem('teamMembers', i, 'name', v)} />
-                      <Field label="Role" value={member.role} onChange={(v) => updateArrayItem('teamMembers', i, 'role', v)} />
-                      <Field label="Podtitulek" value={member.subtitle} onChange={(v) => updateArrayItem('teamMembers', i, 'subtitle', v)} />
-                      <Field label="E-mail" value={member.email} onChange={(v) => updateArrayItem('teamMembers', i, 'email', v)} />
-                    </div>
-                    <Field label="Popis" textarea value={member.description} onChange={(v) => updateArrayItem('teamMembers', i, 'description', v)} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === 'projekty' && (
-          <div className="space-y-10">
-            {projectEditor('currentProjects', 'Aktuální nabídka')}
-            {projectEditor('soldProjects', 'Historie prodejů')}
-          </div>
-        )}
-
-        {tab === 'zpravy' && (
-          <div className="space-y-4">
-            {messages.length === 0 && (
-              <div className={`${cardCls} text-center`}>
-                <p className="text-white/40 text-sm">Zatím žádné zprávy z kontaktního formuláře.</p>
-              </div>
-            )}
-            {messages.map((msg) => (
-              <div key={msg.id} className={cardCls}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-                  <p className="text-white font-semibold text-sm">{msg.name}</p>
-                  <p className="text-white/30 text-xs">{msg.created_at}</p>
-                </div>
-                <p className="text-brass text-xs mb-1">
-                  <a href={`mailto:${msg.email}`} className="hover:underline">{msg.email}</a>
-                  {msg.phone ? <span className="text-white/40"> · {msg.phone}</span> : null}
-                </p>
-                <p className="text-white/70 text-sm whitespace-pre-wrap mt-3">{msg.message}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
-  );
+  return <div className="min-h-screen bg-[#0a1020] text-white"><header className="sticky top-0 z-40 bg-[#0a1020]/95 backdrop-blur border-b border-white/10"><div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap gap-3 justify-between items-center"><div><b>D&D Administrace</b><p className="text-white/35 text-xs">{dirty ? 'Neuložené změny' : 'Koncept uložen'}</p></div><div className="flex gap-2"><button className={ghost} onClick={saveDraft} disabled={busy}>Uložit koncept</button><a className={ghost} href="/?preview=1" target="_blank">Náhled</a><button className={primary} onClick={publish} disabled={busy}>Publikovat</button><button className={ghost} onClick={()=>{localStorage.removeItem('dd_admin_session');router.replace('/admin/login');}}>Odhlásit</button></div></div><nav className="max-w-7xl mx-auto px-4 flex overflow-x-auto">{nav.map(([id,text])=><button key={id} onClick={()=>setTab(id)} className={`px-4 py-3 whitespace-nowrap text-sm border-b-2 ${tab===id?'border-[#c9a84c] text-[#c9a84c]':'border-transparent text-white/45'}`}>{text}</button>)}</nav></header>
+    <main className="max-w-7xl mx-auto p-4 md:p-7 space-y-7">{notice && <div className="bg-[#c9a84c]/10 border border-[#c9a84c]/30 rounded-xl p-4 text-sm text-[#dfc06a]">{notice}</div>}
+      {tab==='obsah' && <><section className={card}><h2 className="font-heading text-xl font-bold mb-5">Úvod</h2><div className="grid md:grid-cols-2 gap-4"><Field label="Titulek" value={content.heroContent.title} onChange={(v:string)=>update(['heroContent','title'],v)}/><Field label="Podtitulek" value={content.heroContent.subtitle} onChange={(v:string)=>update(['heroContent','subtitle'],v)}/><Field label="Popis" textarea value={content.heroContent.description} onChange={(v:string)=>update(['heroContent','description'],v)}/></div></section><section className={card}><h2 className="font-heading text-xl font-bold mb-5">O nás a filozofie</h2><div className="space-y-4"><Field label="Nadpis O nás" value={content.aboutContent.sectionTitle} onChange={(v:string)=>update(['aboutContent','sectionTitle'],v)}/><Field label="Úvod O nás" textarea value={content.aboutContent.intro} onChange={(v:string)=>update(['aboutContent','intro'],v)}/><Field label="Filozofie – odstavce po řádcích" textarea value={content.philosophyContent.paragraphs.join('\n')} onChange={(v:string)=>update(['philosophyContent','paragraphs'],v.split('\n').filter(Boolean))}/></div></section><section className={card}><h2 className="font-heading text-xl font-bold mb-5">Kontakt</h2><div className="grid md:grid-cols-2 gap-4"><Field label="Telefon" value={content.siteConfig.phone} onChange={(v:string)=>update(['siteConfig','phone'],v)}/><Field label="E-mail" value={content.siteConfig.email} onChange={(v:string)=>update(['siteConfig','email'],v)}/><Field label="Adresa" value={content.siteConfig.address} onChange={(v:string)=>update(['siteConfig','address'],v)}/><Field label="Nadpis" value={content.contactContent.sectionSubtitle} onChange={(v:string)=>update(['contactContent','sectionSubtitle'],v)}/></div></section></>}
+      {tab==='tym' && <div className="space-y-4">{content.teamMembers.map((m:any,i:number)=><section className={card} key={i}><div className="grid md:grid-cols-[140px_1fr] gap-5"><div><img src={m.image} alt="" className="w-32 h-40 object-cover rounded-xl mb-2"/><Upload token={token} directory="team" onUploaded={(src)=>updateItem('teamMembers',i,{image:src})}/></div><div className="grid md:grid-cols-2 gap-4"><Field label="Jméno" value={m.name} onChange={(v:string)=>updateItem('teamMembers',i,{name:v})}/><Field label="Role" value={m.role} onChange={(v:string)=>updateItem('teamMembers',i,{role:v})}/><Field label="E-mail" value={m.email} onChange={(v:string)=>updateItem('teamMembers',i,{email:v})}/><Field label="Podtitulek" value={m.subtitle} onChange={(v:string)=>updateItem('teamMembers',i,{subtitle:v})}/><div className="md:col-span-2"><Field label="Popis" textarea value={m.description} onChange={(v:string)=>updateItem('teamMembers',i,{description:v})}/></div></div></div></section>)}</div>}
+      {tab==='projekty' && <div className="space-y-12">{projectEditor('currentProjects')}{projectEditor('soldProjects')}</div>}
+      {tab==='zpravy' && <><div className={`${card} flex flex-wrap gap-3`}><input className={`${input} max-w-sm`} placeholder="Hledat…" value={search} onChange={e=>setSearch(e.target.value)}/><select className={`${input} max-w-48`} value={messageFilter} onChange={e=>setMessageFilter(e.target.value)}><option value="all">Všechny stavy</option><option value="new">Nové</option><option value="contacted">Kontaktované</option><option value="resolved">Vyřešené</option></select><button className={ghost} onClick={csv}>Export CSV</button></div><div className="space-y-3">{filteredMessages.map(m=><article className={card} key={m.id}><div className="flex flex-wrap justify-between gap-3"><div><b>{m.name}</b><p className="text-[#c9a84c] text-sm"><a href={`mailto:${m.email}`}>{m.email}</a> · {m.phone}</p></div><select className={`${input} max-w-44`} value={m.status||'new'} onChange={e=>patchMessage(m.id,{status:e.target.value})}><option value="new">Nová</option><option value="contacted">Kontaktována</option><option value="resolved">Vyřešena</option></select></div><p className="text-white/65 my-4 whitespace-pre-wrap">{m.message}</p><Field label="Interní poznámka" textarea value={m.admin_note} onChange={(v:string)=>setMessages(all=>all.map(x=>x.id===m.id?{...x,admin_note:v}:x))}/><button className={`${ghost} mt-2`} onClick={()=>patchMessage(m.id,{admin_note:m.admin_note})}>Uložit poznámku</button></article>)}</div></>}
+      {tab==='odbery' && <section className={card}><h2 className="font-heading text-xl font-bold mb-2">Hlídací pes</h2><p className="text-white/45 text-sm mb-5">Aktivní: {subscribers.filter(s=>s.confirmed&&!s.unsubscribed_at).length} · Čeká na potvrzení: {subscribers.filter(s=>!s.confirmed&&!s.unsubscribed_at).length}</p><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-white/35 text-left"><tr><th className="py-2">E-mail</th><th>Stav</th><th>Datum</th></tr></thead><tbody>{subscribers.map(s=><tr className="border-t border-white/10" key={s.id}><td className="py-3">{s.email}</td><td>{s.unsubscribed_at?'Odhlášen':s.confirmed?'Aktivní':'Nepotvrzen'}</td><td className="text-white/40">{s.created_at}</td></tr>)}</tbody></table></div></section>}
+      {tab==='analytika' && <><section className={card}><h2 className="font-heading text-xl font-bold mb-5">Posledních 30 dní</h2><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">{(analytics?.events||[]).map((x:any)=><div className="bg-white/5 rounded-xl p-4" key={x.event}><p className="text-white/40 text-xs uppercase">{x.event}</p><b className="text-3xl text-[#c9a84c]">{x.count}</b></div>)}</div></section><section className={card}><h2 className="font-bold mb-4">Nejprohlíženější projekty</h2>{(analytics?.projects||[]).map((x:any)=><p key={x.project_id} className="border-t border-white/10 py-2">Projekt ID {x.project_id}: <b>{x.count}</b></p>)}</section></>}
+      {tab==='verze' && <><section className={`${card} flex flex-wrap gap-3`}><button className={ghost} onClick={download}>Exportovat JSON zálohu</button><button className={ghost} onClick={()=>importRef.current?.click()}>Importovat JSON</button><input ref={importRef} hidden type="file" accept="application/json" onChange={async e=>{try{const json=JSON.parse(await e.target.files![0].text());setContent(json);setDirty(true);setNotice('Záloha načtena jako koncept. Zkontrolujte ji a uložte.');}catch{setNotice('Neplatná záloha.');}}}/></section><section className={card}><h2 className="font-heading text-xl font-bold mb-4">Historie publikování</h2>{versions.map(v=><div className="flex justify-between items-center border-t border-white/10 py-3" key={v.id}><div><b>Verze #{v.id}</b><p className="text-white/35 text-xs">{v.created_at} · {v.created_by}</p></div><button className={ghost} onClick={async()=>{if(!confirm('Načíst tuto verzi jako koncept?'))return;const r=await fetch(`/api/versions/${v.id}`,{headers:auth()});setContent(await r.json());setDirty(true);setNotice('Historická verze načtena jako koncept.');}}>Obnovit do konceptu</button></div>)}</section></>}
+    </main></div>;
 }

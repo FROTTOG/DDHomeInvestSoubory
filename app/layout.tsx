@@ -80,12 +80,6 @@ export default function RootLayout({
           Bez JavaScriptu (nebo při chybě hydration) zůstane obsah viditelný.
         */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js');" }} />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
         <meta name="ios-cache-buster" content={new Date().toISOString().split('T')[0]} />
         <script
           type="application/ld+json"

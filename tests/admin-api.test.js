@@ -53,6 +53,11 @@ class MockDB {
       'app_content',
       'app_theme',
       'contact_messages',
+      'content_draft',
+      'content_versions',
+      'watch_subscribers',
+      'email_notifications',
+      'analytics_events',
     ];
     this.users = new Map([
       [
@@ -147,8 +152,8 @@ class MockDB {
       // přihlášení pouze heslem – API bere prvního administrátora
       return { results: [...this.users.values()] };
     }
-    if (sql.includes('SELECT id, name, email, phone, message, source_url, created_at FROM contact_messages')) {
-      return { results: this.messages };
+    if (sql.includes('FROM contact_messages ORDER BY id DESC')) {
+      return { results: this.messages.map((message) => ({ status: 'new', admin_note: '', ...message })) };
     }
     throw new Error(`Unhandled all SQL: ${sql}`);
   }
@@ -479,14 +484,15 @@ test('home page (Next.js) loads content from API and submits contact form to API
   assert.match(homePage, /useSiteContent/);
 
   const contentHook = readFileSync(path.join(repoRoot, 'app/lib/use-content.ts'), 'utf-8');
-  assert.match(contentHook, /fetch\('\/api\/content'/);
+  assert.match(contentHook, /'\/api\/content'/);
 });
 
-test('admin page (Next.js) saves content via API with Bearer token', async () => {
+test('admin page saves drafts, publishes and authenticates API calls', async () => {
   const adminPage = readFileSync(path.join(repoRoot, 'app/admin/page.tsx'), 'utf-8');
-  assert.match(adminPage, /fetch\('\/api\/content'/);
+  assert.match(adminPage, /\/api\/draft/);
+  assert.match(adminPage, /\/api\/publish/);
   assert.match(adminPage, /method: 'PUT'/);
-  assert.match(adminPage, /authorization: `Bearer \$\{token\}`/);
+  assert.match(adminPage, /authorization: `Bearer/);
   assert.match(adminPage, /\/api\/upload/);
   assert.match(adminPage, /\/api\/contact-messages/);
 });
@@ -621,6 +627,11 @@ test('/api/health hlásí stav bindingů a tabulek', async () => {
     'app_content',
     'app_theme',
     'contact_messages',
+    'content_draft',
+    'content_versions',
+    'watch_subscribers',
+    'email_notifications',
+    'analytics_events',
   ]);
   assert.equal(report.adminUsers, 1);
   assert.equal(report.pbkdf2Iterations, DEFAULT_PBKDF2_ITERATIONS);
