@@ -20,6 +20,7 @@ const MAX_PBKDF2_ITERATIONS = 600000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 const loginAttempts = new Map();
+const analyticsLimits = new Map();
 
 /** Chyba, kterou chceme vrátit klientovi s konkrétním stavovým kódem a textem. */
 class ApiError extends Error {
@@ -131,11 +132,86 @@ async function handleApi(request, env, url, ctx) {
       if (!session.ok) return session.response;
 
       const rows = await env.DB.prepare(
-        'SELECT id, name, email, phone, message, source_url, created_at FROM contact_messages ORDER BY id DESC LIMIT 100',
+        "SELECT id, name, email, phone, message, source_url, created_at, status, admin_note FROM contact_messages ORDER BY id DESC LIMIT 500",
       ).all();
 
       return jsonResponse(rows.results || [], 200, noStoreHeaders());
     }
+
+    const messageMatch = pathname.match(/^\/api\/contact-messages\/(\d+)$/);
+    if (messageMatch && request.method === 'PATCH') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      const body = await readJson(request);
+      const status = ['new', 'contacted', 'resolved'].includes(body.status) ? body.status : 'new';
+      const note = String(body.admin_note || '').slice(0, 3000);
+      await env.DB.prepare('UPDATE contact_messages SET status = ?, admin_note = ? WHERE id = ?')
+        .bind(status, note, Number(messageMatch[1])).run();
+      return jsonResponse({ ok: true }, 200, noStoreHeaders());
+    }
+
+    if (pathname === '/api/draft') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      if (request.method === 'GET') return jsonResponse(await getDraft(env), 200, noStoreHeaders());
+      if (request.method === 'PUT') {
+        const content = withComputedDefaults(await readJson(request));
+        await env.DB.prepare(
+          `INSERT INTO content_draft (id, data, updated_at, updated_by) VALUES (1, ?, CURRENT_TIMESTAMP, ?)
+           ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=CURRENT_TIMESTAMP, updated_by=excluded.updated_by`,
+        ).bind(JSON.stringify(content), session.username).run();
+        return jsonResponse({ ok: true }, 200, noStoreHeaders());
+      }
+    }
+
+    if (pathname === '/api/publish' && request.method === 'POST') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      const body = await readJson(request);
+      const next = withComputedDefaults(body.content || await getDraft(env));
+      const previous = await getContent(env);
+      await env.DB.prepare('INSERT INTO content_versions (data, created_by, note) VALUES (?, ?, ?)')
+        .bind(JSON.stringify(previous), session.username, String(body.note || 'Předchozí publikovaná verze').slice(0, 300)).run();
+      await saveJson(env.DB, 'app_content', next);
+      const notification = await notifyProjectChanges(env, previous, next, new URL(request.url).origin, ctx);
+      return jsonResponse({ ok: true, notification }, 200, noStoreHeaders());
+    }
+
+    if (pathname === '/api/versions' && request.method === 'GET') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      const rows = await env.DB.prepare('SELECT id, created_at, created_by, note FROM content_versions ORDER BY id DESC LIMIT 30').all();
+      return jsonResponse(rows.results || [], 200, noStoreHeaders());
+    }
+
+    const versionMatch = pathname.match(/^\/api\/versions\/(\d+)$/);
+    if (versionMatch && request.method === 'GET') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      const row = await env.DB.prepare('SELECT data FROM content_versions WHERE id = ?').bind(Number(versionMatch[1])).first();
+      if (!row) return jsonResponse({ error: 'Verze nenalezena.' }, 404, noStoreHeaders());
+      return jsonResponse(JSON.parse(row.data), 200, noStoreHeaders());
+    }
+
+    if (pathname === '/api/watch' && request.method === 'POST') return handleWatchSubscribe(request, env);
+    if (pathname === '/api/watch/confirm' && request.method === 'GET') return handleWatchConfirm(url, env);
+    if (pathname === '/api/watch/unsubscribe' && request.method === 'GET') return handleWatchUnsubscribe(url, env);
+
+    if (pathname === '/api/watch-subscribers' && request.method === 'GET') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      const rows = await env.DB.prepare('SELECT id, email, confirmed, created_at, confirmed_at, unsubscribed_at FROM watch_subscribers ORDER BY id DESC').all();
+      return jsonResponse(rows.results || [], 200, noStoreHeaders());
+    }
+
+    if (pathname === '/api/events' && request.method === 'POST') return handleAnalyticsEvent(request, env, url);
+    if (pathname === '/api/analytics' && request.method === 'GET') {
+      const session = await requireAuth(request, env);
+      if (!session.ok) return session.response;
+      return jsonResponse(await getAnalytics(env), 200, noStoreHeaders());
+    }
+
+    if (pathname === '/api/sitemap.xml' && request.method === 'GET') return dynamicSitemap(env, url.origin);
 
     return jsonResponse({ error: 'Not Found' }, 404, noStoreHeaders());
   } catch (error) {
@@ -246,12 +322,12 @@ async function handleHealth(env) {
     const db = requireDb(env);
     const rows = await db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('app_content','app_theme','admin_users','admin_sessions','contact_messages') ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('app_content','app_theme','admin_users','admin_sessions','contact_messages','content_draft','content_versions','watch_subscribers','email_notifications','analytics_events') ORDER BY name",
       )
       .all();
     report.tables = (rows.results || []).map((row) => row.name);
 
-    const required = ['admin_users', 'admin_sessions', 'app_content', 'app_theme', 'contact_messages'];
+    const required = ['admin_users', 'admin_sessions', 'app_content', 'app_theme', 'contact_messages', 'content_draft', 'content_versions', 'watch_subscribers', 'email_notifications', 'analytics_events'];
     const missing = required.filter((table) => !report.tables.includes(table));
     if (missing.length > 0) {
       report.db = `chybí tabulky: ${missing.join(', ')}`;
@@ -594,6 +670,150 @@ async function forwardToFormspree(formspreeId, { name, email, phone, message }, 
   });
 
   return { forwarded: response.ok, status: response.status };
+}
+
+async function getDraft(env) {
+  const row = await requireDb(env).prepare('SELECT data FROM content_draft WHERE id = 1').first();
+  if (!row?.data) return getContent(env);
+  try { return withComputedDefaults(JSON.parse(row.data)); } catch { return getContent(env); }
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+async function sendResend(env, { to, subject, html }) {
+  if (!env?.RESEND_API) throw new Error('Chybí Cloudflare variable RESEND_API.');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.RESEND_API}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: 'D&D HOMEINVEST <notifications@ddhomeinvest.cz>', to: [to], subject, html }),
+  });
+  if (!response.ok) throw new Error(`Resend vrátil ${response.status}: ${await response.text()}`);
+  return response.json();
+}
+
+async function sendResendBatch(env, messages) {
+  if (!env?.RESEND_API) throw new Error('Chybí Cloudflare variable RESEND_API.');
+  const response = await fetch('https://api.resend.com/emails/batch', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.RESEND_API}`, 'content-type': 'application/json' },
+    body: JSON.stringify(messages.map((message) => ({ from: 'D&D HOMEINVEST <notifications@ddhomeinvest.cz>', ...message, to: [message.to] }))),
+  });
+  if (!response.ok) throw new Error(`Resend batch vrátil ${response.status}: ${await response.text()}`);
+  return response.json();
+}
+
+async function handleWatchSubscribe(request, env) {
+  const body = await readJson(request);
+  const email = String(body.email || '').trim().toLowerCase().slice(0, 254);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return jsonResponse({ error: 'Zadejte platný e-mail.' }, 400, noStoreHeaders());
+  const token = randomToken();
+  await requireDb(env).prepare(
+    `INSERT INTO watch_subscribers (email, token, confirmed, unsubscribed_at) VALUES (?, ?, 0, NULL)
+     ON CONFLICT(email) DO UPDATE SET token=excluded.token, confirmed=0, unsubscribed_at=NULL, created_at=CURRENT_TIMESTAMP`,
+  ).bind(email, token).run();
+  const origin = new URL(request.url).origin;
+  await sendResend(env, {
+    to: email,
+    subject: 'Potvrďte hlídání nových projektů D&D HOMEINVEST',
+    html: `<h2>Potvrzení odběru</h2><p>Kliknutím potvrďte, že chcete dostávat upozornění na nové projekty a změny ceny či stavu.</p><p><a href="${origin}/api/watch/confirm?token=${token}">Potvrdit odběr</a></p><p>Pokud jste se nepřihlásili, e-mail ignorujte.</p>`,
+  });
+  return jsonResponse({ ok: true, message: 'Na e-mail jsme poslali potvrzovací odkaz.' }, 200, noStoreHeaders());
+}
+
+async function handleWatchConfirm(url, env) {
+  const token = String(url.searchParams.get('token') || '');
+  const result = await requireDb(env).prepare(
+    'UPDATE watch_subscribers SET confirmed=1, confirmed_at=CURRENT_TIMESTAMP, unsubscribed_at=NULL WHERE token=?',
+  ).bind(token).run();
+  return new Response(`<!doctype html><html lang="cs"><meta charset="utf-8"><title>Odběr potvrzen</title><body style="font-family:system-ui;max-width:640px;margin:80px auto;padding:24px"><h1>Odběr je potvrzen</h1><p>Upozorníme vás na nové projekty a důležité změny.</p><a href="/">Zpět na web</a></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
+async function handleWatchUnsubscribe(url, env) {
+  const token = String(url.searchParams.get('token') || '');
+  await requireDb(env).prepare('UPDATE watch_subscribers SET unsubscribed_at=CURRENT_TIMESTAMP WHERE token=?').bind(token).run();
+  return new Response('<!doctype html><html lang="cs"><meta charset="utf-8"><title>Odběr zrušen</title><body style="font-family:system-ui;max-width:640px;margin:80px auto;padding:24px"><h1>Odběr byl zrušen</h1><a href="/">Zpět na web</a></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
+function projectFingerprint(project) {
+  return `${project.status || ''}|${project.price || ''}`;
+}
+
+async function notifyProjectChanges(env, previous, next, origin, ctx = {}) {
+  const oldProjects = new Map([...(previous.currentProjects || []), ...(previous.soldProjects || [])].map((p) => [String(p.id), p]));
+  const changed = (next.currentProjects || []).filter((project) => {
+    const old = oldProjects.get(String(project.id));
+    return !old || projectFingerprint(old) !== projectFingerprint(project);
+  });
+  if (!changed.length) return { changed: 0, queued: 0 };
+  const rows = await requireDb(env).prepare('SELECT email, token FROM watch_subscribers WHERE confirmed=1 AND unsubscribed_at IS NULL').all();
+  const subscribers = rows.results || [];
+  const jobs = [];
+  let queued = 0;
+  for (const project of changed) {
+    const fingerprint = projectFingerprint(project);
+    const already = await env.DB.prepare('SELECT id FROM email_notifications WHERE project_id=? AND fingerprint=?').bind(String(project.id), fingerprint).first();
+    if (already) continue;
+    const slug = project.slug || slugify(project.title || String(project.id));
+    const emails = subscribers.map((subscriber) => ({
+      to: subscriber.email,
+      subject: `${oldProjects.has(String(project.id)) ? 'Aktualizace' : 'Nový projekt'}: ${project.title}`,
+      html: `<h2>${escapeHtml(project.title)}</h2><p>${escapeHtml(project.location)}</p><p>Stav: <strong>${escapeHtml(project.status)}</strong>${project.price ? `<br>Cena: <strong>${escapeHtml(project.price)}</strong>` : ''}</p><p><a href="${origin}/projekty/${encodeURIComponent(slug)}/">Zobrazit projekt</a></p><p style="font-size:12px"><a href="${origin}/api/watch/unsubscribe?token=${subscriber.token}">Odhlásit odběr</a></p>`,
+    }));
+    queued += emails.length;
+    const batches = [];
+    for (let offset = 0; offset < emails.length; offset += 100) {
+      batches.push(sendResendBatch(env, emails.slice(offset, offset + 100)));
+    }
+    jobs.push(Promise.all(batches)
+      .then(() => env.DB.prepare('INSERT OR IGNORE INTO email_notifications (project_id, fingerprint, recipients) VALUES (?, ?, ?)').bind(String(project.id), fingerprint, subscribers.length).run())
+      .catch((error) => console.error('[watch]', error)));
+  }
+  const work = Promise.all(jobs);
+  if (ctx.waitUntil) ctx.waitUntil(work); else await work;
+  return { changed: changed.length, queued };
+}
+
+async function handleAnalyticsEvent(request, env, url) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'local';
+  const now = Date.now();
+  const limit = analyticsLimits.get(ip) || { start: now, count: 0 };
+  if (now - limit.start > 60_000) { limit.start = now; limit.count = 0; }
+  limit.count += 1; analyticsLimits.set(ip, limit);
+  if (limit.count > 120) return new Response(null, { status: 429, headers: noStoreHeaders() });
+  const body = await readJson(request);
+  const event = String(body.event || '').slice(0, 60).replace(/[^a-z0-9_-]/gi, '');
+  const path = String(body.path || url.pathname).slice(0, 300);
+  const projectId = String(body.projectId || '').slice(0, 100);
+  if (!event) return jsonResponse({ error: 'Chybí událost.' }, 400, noStoreHeaders());
+  const db = requireDb(env);
+  await db.prepare('INSERT INTO analytics_events (event, path, project_id) VALUES (?, ?, ?)').bind(event, path, projectId).run();
+  // Přibližně u 1 % požadavků uklidíme stará anonymní data (retence 90 dní).
+  if (Math.random() < 0.01) await db.prepare("DELETE FROM analytics_events WHERE created_at < datetime('now','-90 days')").run();
+  return new Response(null, { status: 204, headers: noStoreHeaders() });
+}
+
+async function getAnalytics(env) {
+  const events = await requireDb(env).prepare(
+    "SELECT event, COUNT(*) AS count FROM analytics_events WHERE created_at >= datetime('now','-30 days') GROUP BY event ORDER BY count DESC",
+  ).all();
+  const projects = await env.DB.prepare(
+    "SELECT project_id, COUNT(*) AS count FROM analytics_events WHERE event='project_view' AND created_at >= datetime('now','-30 days') GROUP BY project_id ORDER BY count DESC LIMIT 20",
+  ).all();
+  return { periodDays: 30, events: events.results || [], projects: projects.results || [] };
+}
+
+function slugify(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'projekt';
+}
+
+async function dynamicSitemap(env, origin) {
+  const content = await getContent(env);
+  const projects = [...(content.currentProjects || []), ...(content.soldProjects || [])];
+  const urls = ['/', '/pravni-informace/', '/obchodni-podminky/', ...projects.map((p) => `/projekty/${p.slug || slugify(p.title)}/`)];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((path) => `<url><loc>${origin}${escapeHtml(path)}</loc><changefreq>${path === '/' ? 'weekly' : 'monthly'}</changefreq></url>`).join('')}</urlset>`;
+  return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
 }
 
 async function requireAuth(request, env) {

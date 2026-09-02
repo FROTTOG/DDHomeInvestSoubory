@@ -59,6 +59,7 @@ npm run dev            # http://localhost:3000
 # kompletní web včetně API/D1/R2 (jako na produkci):
 npx wrangler d1 execute ddhomeinvest --local --file=migrations/0001_initial.sql       # jednou
 npx wrangler d1 execute ddhomeinvest --local --file=migrations/0002_login_cpu_safe.sql
+npx wrangler d1 execute ddhomeinvest --local --file=migrations/0003_site_features.sql
 npm run preview        # http://localhost:8788
 
 # testy
@@ -86,7 +87,14 @@ Stručně: push do `main` → Cloudflare Pages spustí `npm run build` a nasadí
 - `POST /api/contact` – odeslání kontaktního formuláře
 - `GET /api/contact-messages` – zprávy z formuláře (vyžaduje přihlášení)
 - `GET /api/health` – diagnostika bindingů D1/R2 a tabulek (bez přihlášení)
+- `GET /api/draft`, `PUT /api/draft`, `POST /api/publish` – koncept, náhled a publikování
+- `POST /api/watch` – přihlášení k hlídacímu psu (Resend, double opt-in)
+- `POST /api/events`, `GET /api/analytics` – anonymní konverzní analytika
 - `GET /media/...` – obrázky z R2
+
+Hlídací pes vyžaduje Cloudflare secret `RESEND_API` a ověřenou odesílací adresu
+`notifications@ddhomeinvest.cz` v Resendu. Při publikování se automaticky rozešlou
+změny ceny/stavu a nové aktuální projekty.
 
 ## Bezpečnost
 

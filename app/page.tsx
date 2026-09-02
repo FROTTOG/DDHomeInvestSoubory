@@ -4,6 +4,13 @@ import { useEffect, useState, useRef, useId } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSiteContent } from './lib/use-content';
+import ProjectMap from './components/project-map';
+
+const projectSlug = (project: any) => project.slug || String(project.title || 'projekt').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const trackEvent = (event: string, projectId = '') => {
+  if (typeof window === 'undefined') return;
+  fetch('/api/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event, projectId, path: location.pathname }), keepalive: true }).catch(() => {});
+};
 
 /**
  * Scroll-reveal hook (IntersectionObserver).
@@ -408,7 +415,7 @@ const ProjectCard = ({
 }) => (
   <AnimatedSection delay={delay} {...anim} staggerIndex={staggerIndex} className="h-full">
     <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-2xl border border-gray-light/50 relative h-full flex flex-col card-lift">
-      <div className="relative h-72 bg-navy/10 overflow-hidden cursor-pointer" onClick={() => onDetail(project)}>
+      <div className="relative h-72 bg-navy/10 overflow-hidden cursor-pointer focus:outline-none focus:ring-4 focus:ring-brass/60" role="link" tabIndex={0} aria-label={`Zobrazit detail projektu ${project.title}`} onClick={() => onDetail(project)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onDetail(project); } }}>
         {project.images?.[0] ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
@@ -689,6 +696,24 @@ const ContactForm = () => {
   );
 };
 
+const WatchForm = () => {
+  const [state, setState] = useState<{ busy?: boolean; message?: string; error?: boolean }>({});
+  return <form className="max-w-xl mx-auto flex flex-col sm:flex-row gap-3" onSubmit={async (e) => {
+    e.preventDefault(); setState({ busy: true });
+    const email = String(new FormData(e.currentTarget).get('email') || '');
+    try {
+      const response = await fetch('/api/watch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Přihlášení se nepodařilo.');
+      e.currentTarget.reset(); setState({ message: data.message }); trackEvent('watch_signup');
+    } catch (error) { setState({ error: true, message: error instanceof Error ? error.message : 'Přihlášení se nepodařilo.' }); }
+  }}>
+    <label className="sr-only" htmlFor="watch-email">E-mail pro upozornění</label>
+    <input id="watch-email" name="email" type="email" required placeholder="vas@email.cz" className="flex-1 px-5 py-4 rounded-xl bg-white border border-gray-light text-navy focus:outline-none focus:ring-2 focus:ring-brass"/>
+    <button disabled={state.busy} className="bg-brass text-navy font-semibold px-7 py-4 rounded-xl hover:bg-brass-light disabled:opacity-60">{state.busy ? 'Odesílám…' : 'Chci upozornění'}</button>
+    {state.message && <p role="status" className={`sm:absolute sm:mt-20 text-sm ${state.error ? 'text-red-300' : 'text-emerald-300'}`}>{state.message}</p>}
+  </form>;
+};
+
 // Main page component
 export default function Home() {
   const { content, loaded } = useSiteContent();
@@ -696,6 +721,17 @@ export default function Home() {
   const [galleryTab, setGalleryTab] = useState<'current' | 'sold'>('current');
   const [detailProject, setDetailProject] = useState<any>(null);
   const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    trackEvent('page_view');
+    const onClick = (event: MouseEvent) => {
+      const anchor = (event.target as HTMLElement).closest('a');
+      if (anchor?.href.startsWith('tel:')) trackEvent('phone_click');
+      if (anchor?.href.startsWith('mailto:')) trackEvent('email_click');
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -728,7 +764,7 @@ export default function Home() {
 
   return (
     <>
-      <PageLoader ready={loaded} />
+      {/* Obsah se vykreslí okamžitě; data z API se doplní bez blokujícího loaderu. */}
 
       {/* Navigation */}
       <nav
@@ -1105,7 +1141,10 @@ export default function Home() {
                     anim={galleryAnim}
                     staggerIndex={i}
                     delay={150}
-                    onDetail={setDetailProject}
+                    onDetail={(selected) => {
+                      trackEvent('project_click', String(selected.id || ''));
+                      window.location.href = `/projekty/${encodeURIComponent(projectSlug(selected))}/`;
+                    }}
                   />
                 ))}
               </div>
@@ -1113,8 +1152,19 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="bg-navy text-white py-20">
+          <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12">
+            <div className="text-center mb-10"><span className="text-brass text-xs uppercase tracking-[.25em]">Jižní Čechy</span><h2 className="font-heading text-3xl md:text-4xl font-bold mt-3">Mapa našich projektů</h2></div>
+            <ProjectMap projects={[...currentProjects, ...soldProjects]} className="h-[460px] rounded-2xl overflow-hidden border border-white/10" />
+          </div>
+        </section>
+
+        <section className="bg-navy-light text-white pb-24 pt-20">
+          <div className="max-w-4xl mx-auto px-6 text-center"><span className="text-brass text-xs uppercase tracking-[.25em]">Hlídací pes</span><h2 className="font-heading text-3xl md:text-4xl font-bold mt-3 mb-4">Nenechte si ujít nový projekt</h2><p className="text-white/60 mb-8">Pošleme vám e-mail při zveřejnění projektu nebo změně jeho ceny či stavu. Odběr nejprve potvrdíte e-mailem a kdykoli jej můžete zrušit.</p><WatchForm /></div>
+        </section>
+
         {/* Přechod Galerie → Kontakt */}
-        <SectionDivider from="#f8f6f1" to="#ffffff" compact />
+        <SectionDivider from="#152238" to="#ffffff" compact />
 
         {/* Contact Section */}
         <div className="bg-white">

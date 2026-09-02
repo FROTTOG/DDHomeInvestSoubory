@@ -1,11 +1,18 @@
+@import '@fontsource/inter/300.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/playfair-display/400.css';
+@import '@fontsource/playfair-display/600.css';
+@import '@fontsource/playfair-display/700.css';
+@import '@fontsource/playfair-display/800.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Pozn.: Google fonty se načítají v app/layout.tsx přes <link rel="stylesheet">
- * (s preconnect) – @import v CSS by renderování jen blokoval.
- */
+/* Fonty jsou součástí buildu – bez externího Google Fonts požadavku. */
 
 /* CSS proměnné – stejná paleta jako tailwind.config.js a DEFAULT_THEME */
 :root {
@@ -32,6 +39,19 @@
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+.project-map-pin {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50% 50% 50% 0;
+  background: var(--brass);
+  border: 3px solid white;
+  box-shadow: 0 4px 14px rgba(10, 22, 40, 0.45);
+  transform: rotate(-45deg);
+}
+
+.leaflet-popup-content a { color: #8a6b18; font-weight: 700; }
 
 /* Base styles */
 * {
